@@ -57,16 +57,16 @@ class PropertyManagementApp(tk.Tk):
         for w in self.winfo_children():
             w.destroy()
         if staff.role == "Finance Manager":
-            from views_finance import FinanceAppShell
+            from views.views_finance import FinanceAppShell
             FinanceAppShell(self, staff, self.db)
         elif staff.role == "Maintenance Staff":
-            from views_maintenance import MaintenanceAppShell
+            from views.views_maintenance import MaintenanceAppShell
             MaintenanceAppShell(self, staff, self.db)
         elif staff.role == "Administrator":
-            from views_admin import AdminAppShell
+            from views.views_admin import AdminAppShell
             AdminAppShell(self, staff, self.db)
         elif staff.role == "Manager":
-            from views_manager import ManagerAppShell
+            from views.views_manager import ManagerAppShell
             ManagerAppShell(self, staff, self.db)
         else:
             AppShell(self, staff, self.db)
