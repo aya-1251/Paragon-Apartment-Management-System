@@ -39,7 +39,8 @@ def page_header(parent, title, subtitle=""):
         tk.Label(hdr, text=subtitle, font=FONT_BODY, bg=DARK_BG, fg=TEXT_DIM).pack(anchor="w")
 
 def stat_pill(parent, label, val, color):
-    p = tk.Frame(parent, bg=CARD_BG, padx=16, pady=10)
+    p = tk.Frame(parent, bg=CARD_BG, padx=16, pady=10,
+                 highlightbackground=BORDER, highlightthickness=1)
     p.pack(side="left", padx=(0, 8))
     tk.Label(p, text=str(val), font=("Segoe UI", 16, "bold"), bg=CARD_BG, fg=color).pack()
     tk.Label(p, text=label, font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM).pack()
@@ -78,6 +79,7 @@ class AdminAppShell(tk.Frame):
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM).pack(anchor="w", pady=(4, 0))
 
         self._nbtn = {}
+        self._nbar = {}
         for key, label, dest in [
             ("commune",    "🏠  Apartments",       "commune"),
             ("staff",      "👥  Staff Accounts",   "staff"),
@@ -85,12 +87,17 @@ class AdminAppShell(tk.Frame):
             ("leases",     "📄  Lease Tracker",    "leases"),
             ("reports",    "📊  Reports",          "reports"),
         ]:
-            b = tk.Button(sb, text=label, font=FONT_BODY, bg=PANEL_BG, fg=TEXT_DIM,
-                          relief="flat", bd=0, anchor="w", padx=18, pady=11,
+            row = tk.Frame(sb, bg=PANEL_BG)
+            row.pack(fill="x")
+            bar = tk.Frame(row, bg=PANEL_BG, width=3)
+            bar.pack(side="left", fill="y")
+            b = tk.Button(row, text=label, font=FONT_BODY, bg=PANEL_BG, fg=TEXT_DIM,
+                          relief="flat", bd=0, anchor="w", padx=15, pady=11,
                           cursor="hand2", activebackground=HOVER_BG, activeforeground=TEXT,
                           command=lambda d=dest, k=key: self._nav(k, d))
-            b.pack(fill="x")
+            b.pack(side="left", fill="x", expand=True)
             self._nbtn[key] = b
+            self._nbar[key] = bar
 
         tk.Frame(sb, bg=PANEL_BG).pack(fill="both", expand=True)
         tk.Frame(sb, bg=BORDER, height=1).pack(fill="x", padx=10)
@@ -103,8 +110,11 @@ class AdminAppShell(tk.Frame):
         _so.bind("<Leave>", lambda e: _so.config(bg=PANEL_BG))
 
     def _nav(self, key, dest):
-        for k, b in self._nbtn.items(): b.config(bg=PANEL_BG, fg=TEXT_DIM)
+        for k, b in self._nbtn.items():
+            b.config(bg=PANEL_BG, fg=TEXT_DIM)
+            self._nbar[k].config(bg=PANEL_BG)
         self._nbtn[key].config(bg=HOVER_BG, fg=TEXT)
+        self._nbar[key].config(bg=ACCENT)
         self._go(dest)
 
     def _clear(self):
@@ -162,11 +172,15 @@ class AdminCommuneView(tk.Frame):
         se.bind("<FocusOut>", lambda e: se.insert(0, placeholder) if se.get() == "" else None)
         self.sv.trace("w", lambda *a: self._filter())
         self._sf = tk.StringVar(value="All")
-        tk.Label(fbar, text="  Filter:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left", padx=(12, 4))
+        tk.Label(fbar, text="  Filter:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left", padx=(12, 8))
+        self._fbtns = {}
         for s, c in [("All", TEXT_DIM), ("Available", SUCCESS), ("Occupied", ACCENT), ("Under Maintenance", WARNING)]:
-            tk.Radiobutton(fbar, text=s, variable=self._sf, value=s, font=FONT_SMALL,
-                           bg=DARK_BG, fg=c, selectcolor=DARK_BG, activebackground=DARK_BG,
-                           relief="flat", bd=0, cursor="hand2", command=self._filter).pack(side="left", padx=4)
+            btn = tk.Button(fbar, text=s, font=FONT_SMALL, relief="flat", bd=0,
+                            padx=10, pady=4, cursor="hand2", highlightthickness=1,
+                            command=lambda s=s: self._set_filter(s))
+            btn.pack(side="left", padx=(0, 4))
+            self._fbtns[s] = (btn, c)
+        self._refresh_filter_btns()
 
         outer, self.grid_inner = scrollable(self, DARK_BG)
         outer.pack(fill="both", expand=True, padx=28, pady=(0, 16))
@@ -184,6 +198,19 @@ class AdminCommuneView(tk.Frame):
                                   ("Available", "available_apartments", SUCCESS),
                                   ("Open Issues", "open_maintenance", WARNING)]:
             stat_pill(self.stat_row, label, stats[key], col)
+
+    def _set_filter(self, value):
+        self._sf.set(value)
+        self._refresh_filter_btns()
+        self._filter()
+
+    def _refresh_filter_btns(self):
+        active = self._sf.get()
+        for s, (btn, c) in self._fbtns.items():
+            if s == active:
+                btn.config(bg=c, fg="white", highlightbackground=c)
+            else:
+                btn.config(bg=DARK_BG, fg=c, highlightbackground=BORDER)
 
     def _filter(self):
         q = self.sv.get().strip().lower()

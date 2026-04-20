@@ -54,6 +54,7 @@ class FinanceAppShell(tk.Frame):
         tk.Label(uc, text=f"📍 {city}", font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM).pack(anchor="w", pady=(4, 0))
 
         self._nbtn = {}
+        self._nbar = {}
         nav_items = [
             ("commune",   "🏠  Apartments",     "commune"),
             ("payments",  "💳  Payments",        "payments"),
@@ -62,12 +63,17 @@ class FinanceAppShell(tk.Frame):
             ("reports",   "📊  Reports",         "reports"),
         ]
         for key, label, dest in nav_items:
-            b = tk.Button(sb, text=label, font=FONT_BODY, bg=PANEL_BG, fg=TEXT_DIM,
-                          relief="flat", bd=0, anchor="w", padx=18, pady=11,
+            row = tk.Frame(sb, bg=PANEL_BG)
+            row.pack(fill="x")
+            bar = tk.Frame(row, bg=PANEL_BG, width=3)
+            bar.pack(side="left", fill="y")
+            b = tk.Button(row, text=label, font=FONT_BODY, bg=PANEL_BG, fg=TEXT_DIM,
+                          relief="flat", bd=0, anchor="w", padx=15, pady=11,
                           cursor="hand2", activebackground=HOVER_BG, activeforeground=TEXT,
                           command=lambda d=dest, k=key: self._nav(k, d))
-            b.pack(fill="x")
+            b.pack(side="left", fill="x", expand=True)
             self._nbtn[key] = b
+            self._nbar[key] = bar
 
         tk.Frame(sb, bg=PANEL_BG).pack(fill="both", expand=True)
         tk.Frame(sb, bg=BORDER, height=1).pack(fill="x", padx=10)
@@ -82,7 +88,9 @@ class FinanceAppShell(tk.Frame):
     def _nav(self, key, dest):
         for k, b in self._nbtn.items():
             b.config(bg=PANEL_BG, fg=TEXT_DIM)
+            self._nbar[k].config(bg=PANEL_BG)
         self._nbtn[key].config(bg=HOVER_BG, fg=TEXT)
+        self._nbar[key].config(bg=ACCENT)
         self._go(dest)
 
     def _clear(self):

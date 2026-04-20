@@ -121,15 +121,34 @@ def export_bar(parent, title: str, get_data_fn, bg=DARK_BG):
           color=ACCENT2, small=True).pack(side="left")
     return frame
 
-def entry_var(parent, label, row, col=0, default="", width=24, colspan=1):
+def entry_var(parent, label, row, col=0, default="", width=24, colspan=1, placeholder=""):
     tk.Label(parent, text=label, font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM
              ).grid(row=row, column=col, sticky="w", padx=6, pady=(8,2))
-    var = tk.StringVar(value=default)
-    e = tk.Entry(parent, textvariable=var, font=FONT_BODY, bg=PANEL_BG, fg=TEXT,
+    e = tk.Entry(parent, font=FONT_BODY, bg=PANEL_BG, fg=TEXT,
                  insertbackground=TEXT, relief="flat", bd=0, width=width,
                  highlightthickness=1, highlightcolor=ACCENT, highlightbackground=BORDER)
     e.grid(row=row+1, column=col, columnspan=colspan, sticky="ew", padx=6, pady=(0,4))
-    return var
+    _ph = [False]
+    if default:
+        e.insert(0, default)
+    elif placeholder:
+        e.insert(0, placeholder)
+        e.config(fg=TEXT_MUTED)
+        _ph[0] = True
+    if placeholder:
+        def _fin(ev):
+            if _ph[0]: e.delete(0, "end"); e.config(fg=TEXT); _ph[0] = False
+        def _fout(ev):
+            if not e.get(): e.insert(0, placeholder); e.config(fg=TEXT_MUTED); _ph[0] = True
+        e.bind("<FocusIn>", _fin)
+        e.bind("<FocusOut>", _fout)
+    class _Var:
+        def get(self_): return "" if _ph[0] else e.get()
+        def set(self_, v):
+            e.delete(0, "end"); _ph[0] = False
+            if v: e.insert(0, v); e.config(fg=TEXT)
+            elif placeholder: e.insert(0, placeholder); e.config(fg=TEXT_MUTED); _ph[0] = True
+    return _Var()
 
 def combo_var(parent, label, opts, row, col=0, default=None, width=22):
     tk.Label(parent, text=label, font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM
@@ -186,20 +205,29 @@ class LoginView(tk.Frame):
         left = tk.Frame(self, bg=DARK_BG, width=360)
         left.pack(side="left", fill="y")
         left.pack_propagate(False)
-        tk.Label(left, text="🏢", font=("Segoe UI Emoji", 48), bg=DARK_BG, fg=ACCENT).pack(pady=(90,12))
+        tk.Label(left, text="🏢", font=("Segoe UI Emoji", 48), bg=DARK_BG, fg=ACCENT).pack(pady=(70,12))
         tk.Label(left, text="PAMS", font=("Segoe UI",20,"bold"), bg=DARK_BG, fg=TEXT).pack()
-        tk.Label(left, text="Paragon Apartment Management System", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(pady=(4,40))
+        tk.Label(left, text="Paragon Apartment Management System", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(pady=(4,28))
         for feat in ["Apartment Grid Overview", "Full Lease & Tenant Records",
                      "Payment History", "Maintenance & Complaints"]:
             r = tk.Frame(left, bg=DARK_BG)
-            r.pack(fill="x", padx=36, pady=3)
-            tk.Label(r, text="✓", font=FONT_BODY, bg=DARK_BG, fg=SUCCESS).pack(side="left")
-            tk.Label(r, text=f"  {feat}", font=FONT_BODY, bg=DARK_BG, fg=TEXT_DIM).pack(side="left")
+            r.pack(fill="x", padx=36, pady=5)
+            badge_f = tk.Frame(r, bg=SUCCESS, width=20, height=20)
+            badge_f.pack(side="left", padx=(0,10))
+            badge_f.pack_propagate(False)
+            tk.Label(badge_f, text="✓", font=("Segoe UI",9,"bold"), bg=SUCCESS, fg="white").pack(expand=True)
+            tk.Label(r, text=feat, font=FONT_BODY, bg=DARK_BG, fg=TEXT_DIM).pack(side="left")
+
+        tk.Frame(left, bg=DARK_BG).pack(fill="both", expand=True)
+        bottom = tk.Frame(left, bg=ACCENT, padx=24, pady=20)
+        bottom.pack(fill="x")
+        tk.Label(bottom, text="Trusted by property managers\nacross the UK",
+                 font=FONT_SMALL, bg=ACCENT, fg="white", justify="left").pack(anchor="w")
 
         right = tk.Frame(self, bg=PANEL_BG)
         right.pack(side="left", fill="both", expand=True)
         form = tk.Frame(right, bg=PANEL_BG, padx=48, pady=48,
-                       highlightbackground=BORDER, highlightthickness=1)
+                       highlightbackground="#C7CDD6", highlightthickness=1)
         form.place(relx=0.5, rely=0.5, anchor="center")
 
         tk.Label(form, text="Welcome back", font=FONT_HEAD, bg=PANEL_BG, fg=TEXT).pack(anchor="w")
@@ -258,16 +286,22 @@ class AppShell(tk.Frame):
         badge(uc, self.staff.role, ACCENT).pack(anchor="w", pady=(4,0))
 
         self._nbtn = {}
+        self._nbar = {}
         for key, label, cmd in [
             ("commune",      "🏠  Apartments",  self._go_commune),
             ("create_lease", "➕  Create Lease", self._go_create),
         ]:
-            b = tk.Button(sb, text=label, font=FONT_BODY, bg=PANEL_BG, fg=TEXT_DIM,
-                          relief="flat", bd=0, anchor="w", padx=18, pady=11,
+            row = tk.Frame(sb, bg=PANEL_BG)
+            row.pack(fill="x")
+            bar = tk.Frame(row, bg=PANEL_BG, width=3)
+            bar.pack(side="left", fill="y")
+            b = tk.Button(row, text=label, font=FONT_BODY, bg=PANEL_BG, fg=TEXT_DIM,
+                          relief="flat", bd=0, anchor="w", padx=15, pady=11,
                           cursor="hand2", activebackground=HOVER_BG, activeforeground=TEXT,
                           command=lambda c=cmd, k=key: self._nav(k, c))
-            b.pack(fill="x")
+            b.pack(side="left", fill="x", expand=True)
             self._nbtn[key] = b
+            self._nbar[key] = bar
 
         tk.Frame(sb, bg=PANEL_BG).pack(fill="both", expand=True)
         tk.Frame(sb, bg=BORDER, height=1).pack(fill="x", padx=10)
@@ -280,8 +314,11 @@ class AppShell(tk.Frame):
         _so.bind("<Leave>", lambda e: _so.config(bg=PANEL_BG))
 
     def _nav(self, key, cmd):
-        for k, b in self._nbtn.items(): b.config(bg=PANEL_BG, fg=TEXT_DIM)
+        for k, b in self._nbtn.items():
+            b.config(bg=PANEL_BG, fg=TEXT_DIM)
+            self._nbar[k].config(bg=PANEL_BG)
         self._nbtn[key].config(bg=HOVER_BG, fg=TEXT)
+        self._nbar[key].config(bg=ACCENT)
         cmd()
 
     def _clear(self):
@@ -342,13 +379,16 @@ class CommuneView(tk.Frame):
         se.bind("<FocusOut>", lambda e: se.insert(0,placeholder) if se.get()=="" else None)
         self.sv.trace("w", lambda *a: self._filter())
 
-        tk.Label(fbar, text="  Filter:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left", padx=(14,4))
+        tk.Label(fbar, text="  Filter:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left", padx=(14,8))
         self._sf = tk.StringVar(value="All")
+        self._fbtns = {}
         for s, c in [("All",TEXT_DIM),("Available",SUCCESS),("Occupied",ACCENT),("Under Maintenance",WARNING)]:
-            tk.Radiobutton(fbar, text=s, variable=self._sf, value=s, font=FONT_SMALL,
-                           bg=DARK_BG, fg=c, selectcolor=DARK_BG, activebackground=DARK_BG,
-                           relief="flat", bd=0, cursor="hand2",
-                           command=self._filter).pack(side="left", padx=4)
+            btn = tk.Button(fbar, text=s, font=FONT_SMALL, relief="flat", bd=0,
+                            padx=10, pady=4, cursor="hand2", highlightthickness=1,
+                            command=lambda s=s: self._set_filter(s))
+            btn.pack(side="left", padx=(0,4))
+            self._fbtns[s] = (btn, c)
+        self._refresh_filter_btns()
 
         # scrollable grid
         outer, self.grid_inner = scrollable(self, DARK_BG)
@@ -367,10 +407,24 @@ class CommuneView(tk.Frame):
         maint = sum(1 for a in self._all if a.status=="Under Maintenance")
         for label, val, color in [("Total",tot,TEXT),("Available",avail,SUCCESS),
                                    ("Occupied",occ,ACCENT),("Maintenance",maint,WARNING)]:
-            p = tk.Frame(self.stat_row, bg=CARD_BG, padx=14, pady=8)
+            p = tk.Frame(self.stat_row, bg=CARD_BG, padx=14, pady=8,
+                         highlightbackground=BORDER, highlightthickness=1)
             p.pack(side="left", padx=(0,8))
             tk.Label(p, text=str(val), font=("Segoe UI",16,"bold"), bg=CARD_BG, fg=color).pack()
             tk.Label(p, text=label, font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM).pack()
+
+    def _set_filter(self, value):
+        self._sf.set(value)
+        self._refresh_filter_btns()
+        self._filter()
+
+    def _refresh_filter_btns(self):
+        active = self._sf.get()
+        for s, (btn, c) in self._fbtns.items():
+            if s == active:
+                btn.config(bg=c, fg="white", highlightbackground=c)
+            else:
+                btn.config(bg=DARK_BG, fg=c, highlightbackground=BORDER)
 
     def _filter(self):
         q = self.sv.get().strip().lower()
@@ -423,8 +477,8 @@ class CommuneView(tk.Frame):
 
         pills = tk.Frame(body, bg=CARD_BG)
         pills.pack(anchor="w", pady=(6,0))
-        if apt.furnished: tk.Label(pills, text=" Furnished ", font=FONT_SMALL, bg=ACCENT2, fg=ACCENT2).pack(side="left", padx=(0,4))
-        if apt.parking:   tk.Label(pills, text=" Parking ",   font=FONT_SMALL, bg=ACCENT,  fg=ACCENT).pack(side="left")
+        if apt.furnished: tk.Label(pills, text=" Furnished ", font=FONT_SMALL, bg=ACCENT2, fg="white", padx=6, pady=2).pack(side="left", padx=(0,4))
+        if apt.parking:   tk.Label(pills, text=" Parking ",   font=FONT_SMALL, bg=ACCENT,  fg="white", padx=6, pady=2).pack(side="left")
 
         foot = tk.Frame(body, bg=CARD_BG)
         foot.pack(fill="x", pady=(10,0))
@@ -823,25 +877,25 @@ class CreateLeaseWizard(tk.Frame):
 
         slbl(1, "Personal Details")
         td = self.tenant_data
-        self.ni   = entry_var(inner, "NI Number *",    2, 0, td.get("ni_number",""))
-        self.fn   = entry_var(inner, "First Name *",   2, 1, td.get("first_name",""))
-        self.ln   = entry_var(inner, "Last Name *",    2, 2, td.get("last_name",""))
-        self.dob  = entry_var(inner, "Date of Birth",  4, 0, td.get("date_of_birth","YYYY-MM-DD"))
-        self.ph   = entry_var(inner, "Phone *",        4, 1, td.get("phone",""))
-        self.em   = entry_var(inner, "Email *",        4, 2, td.get("email",""))
-        self.oc   = entry_var(inner, "Occupation",     6, 0, td.get("occupation",""))
+        self.ni  = entry_var(inner, "NI Number *",   2, 0, td.get("ni_number",""),   placeholder="e.g. AB123456C")
+        self.fn  = entry_var(inner, "First Name *",  2, 1, td.get("first_name",""),  placeholder="e.g. John")
+        self.ln  = entry_var(inner, "Last Name *",   2, 2, td.get("last_name",""),   placeholder="e.g. Smith")
+        self.dob = entry_var(inner, "Date of Birth", 4, 0, td.get("date_of_birth",""),placeholder="YYYY-MM-DD")
+        self.ph  = entry_var(inner, "Phone *",       4, 1, td.get("phone",""),       placeholder="e.g. 07700 123456")
+        self.em  = entry_var(inner, "Email *",       4, 2, td.get("email",""),       placeholder="e.g. john@email.com")
+        self.oc  = entry_var(inner, "Occupation",    6, 0, td.get("occupation",""),  placeholder="e.g. Software Engineer")
 
         slbl(8, "Emergency Contact")
-        self.ecn  = entry_var(inner, "Contact Name",   9, 0, td.get("emergency_contact_name",""))
-        self.ecp  = entry_var(inner, "Contact Phone",  9, 1, td.get("emergency_contact_phone",""))
+        self.ecn = entry_var(inner, "Contact Name",  9, 0, td.get("emergency_contact_name",""),  placeholder="e.g. Jane Smith")
+        self.ecp = entry_var(inner, "Contact Phone", 9, 1, td.get("emergency_contact_phone",""), placeholder="e.g. 07700 654321")
 
         slbl(11, "References")
-        self.r1n  = entry_var(inner, "Ref 1 Name",  12, 0, td.get("reference1_name",""))
-        self.r1p  = entry_var(inner, "Ref 1 Phone", 12, 1, td.get("reference1_phone",""))
-        self.r1e  = entry_var(inner, "Ref 1 Email", 12, 2, td.get("reference1_email",""))
-        self.r2n  = entry_var(inner, "Ref 2 Name",  14, 0, td.get("reference2_name",""))
-        self.r2p  = entry_var(inner, "Ref 2 Phone", 14, 1, td.get("reference2_phone",""))
-        self.r2e  = entry_var(inner, "Ref 2 Email", 14, 2, td.get("reference2_email",""))
+        self.r1n = entry_var(inner, "Ref 1 Name",  12, 0, td.get("reference1_name",""),  placeholder="e.g. Dr. Brown")
+        self.r1p = entry_var(inner, "Ref 1 Phone", 12, 1, td.get("reference1_phone",""), placeholder="e.g. 07700 111222")
+        self.r1e = entry_var(inner, "Ref 1 Email", 12, 2, td.get("reference1_email",""), placeholder="e.g. ref@email.com")
+        self.r2n = entry_var(inner, "Ref 2 Name",  14, 0, td.get("reference2_name",""),  placeholder="e.g. Dr. Jones")
+        self.r2p = entry_var(inner, "Ref 2 Phone", 14, 1, td.get("reference2_phone",""), placeholder="e.g. 07700 333444")
+        self.r2e = entry_var(inner, "Ref 2 Email", 14, 2, td.get("reference2_email",""), placeholder="e.g. ref2@email.com")
 
         slbl(16, "Notes")
         self.nt = tk.Text(inner, font=FONT_BODY, bg=PANEL_BG, fg=TEXT, insertbackground=TEXT,
