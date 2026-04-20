@@ -72,7 +72,7 @@ class ManagerAppShell(tk.Frame):
         sb.pack(side="left", fill="y")
         sb.pack_propagate(False)
 
-        tk.Label(sb, text="🏢  PropManage", font=("Segoe UI", 12, "bold"),
+        tk.Label(sb, text="🏢  PAMS", font=("Segoe UI", 12, "bold"),
                  bg=PANEL_BG, fg=TEXT).pack(padx=20, pady=(22, 10), anchor="w")
 
         uc = tk.Frame(sb, bg=HOVER_BG, padx=14, pady=10)

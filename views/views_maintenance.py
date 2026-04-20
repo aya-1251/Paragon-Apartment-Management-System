@@ -63,7 +63,7 @@ class MaintenanceAppShell(tk.Frame):
                          highlightbackground=BORDER, highlightthickness=1)
         sb.pack(side="left", fill="y")
         sb.pack_propagate(False)
-        tk.Label(sb, text="🏢  PropManage", font=("Segoe UI", 12, "bold"),
+        tk.Label(sb, text="🏢  PAMS", font=("Segoe UI", 12, "bold"),
                  bg=PANEL_BG, fg=TEXT).pack(padx=20, pady=(22, 10), anchor="w")
         uc = tk.Frame(sb, bg=HOVER_BG, padx=14, pady=10)
         uc.pack(fill="x", padx=10, pady=(0, 10))
@@ -665,7 +665,7 @@ class RequestDetailWindow(tk.Toplevel):
             f"A maintenance visit has been scheduled for Unit {getattr(req,'unit_number','—')} "
             f"to address: {req.title}.\n\n"
             f"Scheduled: [DATE] at [TIME].\n\n"
-            f"Please ensure access is available. Contact us with any queries.\n\nKind regards,\nPropManage Maintenance Team")
+            f"Please ensure access is available. Contact us with any queries.\n\nKind regards,\nParagon Maintenance Team")
 
         nav = tk.Frame(inner, bg=CARD_BG, padx=28, pady=12)
         nav.pack(fill="x")

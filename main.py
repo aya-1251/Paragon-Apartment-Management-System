@@ -15,7 +15,7 @@ from views import LoginView, AppShell
 class PropertyManagementApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("PropManage — Property Management System")
+        self.title("PAMS — Paragon Apartment Management System")
         self.geometry("1280x800")
         self.minsize(1100, 700)
         self.configure(bg="#0F1117")

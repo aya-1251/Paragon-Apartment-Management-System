@@ -42,7 +42,7 @@ class FinanceAppShell(tk.Frame):
         sb.pack(side="left", fill="y")
         sb.pack_propagate(False)
 
-        tk.Label(sb, text="🏢  PropManage", font=("Segoe UI", 12, "bold"),
+        tk.Label(sb, text="🏢  PAMS", font=("Segoe UI", 12, "bold"),
                  bg=PANEL_BG, fg=TEXT).pack(padx=20, pady=(22, 10), anchor="w")
 
         uc = tk.Frame(sb, bg=HOVER_BG, padx=14, pady=10)
@@ -348,7 +348,7 @@ class ReceiptWindow(tk.Toplevel):
                        highlightbackground=BORDER, highlightthickness=1)
         card.place(relx=0.5, rely=0.5, anchor="center")
 
-        tk.Label(card, text="🏢  PropManage", font=("Segoe UI", 14, "bold"),
+        tk.Label(card, text="🏢  PAMS", font=("Segoe UI", 14, "bold"),
                  bg="white", fg=TEXT).pack(anchor="w")
         tk.Label(card, text="PAYMENT RECEIPT", font=("Segoe UI", 10),
                  bg="white", fg=TEXT_MUTED).pack(anchor="w", pady=(2, 16))
@@ -646,7 +646,7 @@ class NotificationWindow(tk.Toplevel):
 
         tk.Label(card, text="📧  Late Payment Notice", font=("Segoe UI", 13, "bold"),
                  bg="white", fg=DANGER).pack(anchor="w")
-        tk.Label(card, text="PropManage Property Services", font=FONT_SMALL,
+        tk.Label(card, text="Paragon Property Services", font=FONT_SMALL,
                  bg="white", fg=TEXT_DIM).pack(anchor="w", pady=(2, 16))
 
         body = (
@@ -657,7 +657,7 @@ class NotificationWindow(tk.Toplevel):
             f"  Original Due Date:  {note.get('due', '—')}\n\n"
             f"Please arrange payment at your earliest convenience to avoid further action.\n"
             f"If you have already made payment, please disregard this notice.\n\n"
-            f"Kind regards,\nPropManage Finance Team"
+            f"Kind regards,\nParagon Finance Team"
         )
         tk.Label(card, text=body, font=("Segoe UI", 10), bg="white", fg=TEXT,
                  justify="left", wraplength=460).pack(anchor="w")

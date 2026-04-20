@@ -187,8 +187,8 @@ class LoginView(tk.Frame):
         left.pack(side="left", fill="y")
         left.pack_propagate(False)
         tk.Label(left, text="🏢", font=("Segoe UI Emoji", 48), bg=DARK_BG, fg=ACCENT).pack(pady=(90,12))
-        tk.Label(left, text="PropManage", font=("Segoe UI",20,"bold"), bg=DARK_BG, fg=TEXT).pack()
-        tk.Label(left, text="Property Management System", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(pady=(4,40))
+        tk.Label(left, text="PAMS", font=("Segoe UI",20,"bold"), bg=DARK_BG, fg=TEXT).pack()
+        tk.Label(left, text="Paragon Apartment Management System", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(pady=(4,40))
         for feat in ["Apartment Grid Overview", "Full Lease & Tenant Records",
                      "Payment History", "Maintenance & Complaints"]:
             r = tk.Frame(left, bg=DARK_BG)
@@ -250,7 +250,7 @@ class AppShell(tk.Frame):
                          highlightbackground=BORDER, highlightthickness=1)
         sb.pack(side="left", fill="y")
         sb.pack_propagate(False)
-        tk.Label(sb, text="🏢  PropManage", font=("Segoe UI",12,"bold"),
+        tk.Label(sb, text="🏢  PAMS", font=("Segoe UI",12,"bold"),
                  bg=PANEL_BG, fg=TEXT).pack(padx=20, pady=(22,10), anchor="w")
         uc = tk.Frame(sb, bg=HOVER_BG, padx=14, pady=10)
         uc.pack(fill="x", padx=10, pady=(0,10))
