@@ -172,7 +172,7 @@ Testing is an essential part of the software development process. You should use
     <tr>
       <td>1</td>
       <td>Front-desk staff is able to add 2 new tenants</td>
-      <td>Adding apartment city, name/number, NI number, tenants name, occupation, references, lease period, start contract date, end contract</td>
+      <td>Adding apartment city, name/number, NI number, tenants name, occupation, references, lease period, start contract date, end contract date, depost amount, monthly</td>
       <td>Shows new tenants added.</td>
       <td>As expected</td>
     </tr>
@@ -186,15 +186,6 @@ Testing is an essential part of the software development process. You should use
 
 ## Page 6
 
-<table>
-  <tr>
-    <td></td>
-    <td></td>
-    <td>date, amount, rent</td>
-    <td>deposit monthly</td>
-    <td></td>
-  </tr>
-</table>
 
 **Task 2 (Viva and Demo 25%)**
 The second assessment task is viva and demo of the design, methodology, and overall implemented software solution. The demo will take place during your practical session time, following the submission of your portfolio. The demo/viva will provide you with the opportunity to present and explain your work based on which the quality of your portfolio will be determined. In the demo session, you are expected to show quality of software features, explain the applied software methodology, clarify individual contributions and the overall evaluation of the project.
@@ -373,11 +364,11 @@ Marking Criteria
       <td><b>Sequence diagram (at least three diagrams) (15)</b></td>
       <td>Missing or mostly incorrect (less than 30%).</td>
       <td>Partial diagrams, with major errors in lifelines, messages, or activation (less than 40%).</td>
-      <td>Partial diagrams, mostly correct, lifelines, activation bars, and messages are</td>
-      <td>Nearly complete, but with noticeable errors, lifelines, activation bars, and messages</td>
+      <td>Partial diagrams, mostly correct, lifelines, activation bars, and messages are correct (less than 50%).</td>
+      <td>Nearly complete, but with noticeable errors, lifelines, activation bars, and messages are only partially correct (less than 60%).</td>
       <td>Nearly complete and mostly correct, lifelines, activation bars, and messages are correct (less than 70%).</td>
-      <td>Complete diagrams but some minor issues, lifelines, activation bars, and messages are</td>
-      <td>Fully complete and accurate, lifelines, activation bars, and messages are</td>
+      <td>Complete diagrams but some minor issues, lifelines, activation bars, and messages are only partially correct (less than 85%).</td>
+      <td>Fully complete and accurate, lifelines, activation bars, and messages are correct (100% complete).</td>
       <td></td>
     </tr>
   </tbody>
@@ -396,11 +387,11 @@ Marking Criteria
       <th></th>
       <th></th>
       <th></th>
-      <th>correct (less than 50%).</th>
-      <th>are only partially correct (less than 60%).</th>
       <th></th>
-      <th>only partially correct (less than 85%).</th>
-      <th>correct (100% complete).</th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
       <th></th>
     </tr>
   </thead>

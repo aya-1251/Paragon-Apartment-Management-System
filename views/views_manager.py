@@ -11,16 +11,17 @@ from .views import (
     TEXT, TEXT_DIM, TEXT_MUTED, BORDER, HOVER_BG,
     FONT_HEAD, FONT_TITLE, FONT_SUB, FONT_BODY, FONT_SMALL,
     sc, badge, mkbtn, entry_var, combo_var, scrollable, sec_hdr, info_grid,
-    ApartmentDetailWindow, export_bar,
+    ApartmentDetailWindow, export_bar, BaseAppShell, DataExplorerView,
 )
 
 
-def col_headers(parent, cols, bg=PANEL_BG):
+def col_headers(parent, cols, bg=HOVER_BG):
     row = tk.Frame(parent, bg=bg)
     row.pack(fill="x", padx=24, pady=(4, 0))
     for label, w in cols:
-        tk.Label(row, text=label, font=FONT_SMALL, bg=bg, fg=TEXT_DIM,
-                 width=w, anchor="w").pack(side="left", padx=4, pady=6)
+        tk.Label(row, text=label, font=("Segoe UI", 9, "bold"), bg=bg, fg=TEXT,
+                 width=w, anchor="w").pack(side="left", padx=4, pady=8)
+    tk.Frame(parent, bg=BORDER, height=1).pack(fill="x", padx=24)
 
 def divider(parent):
     tk.Frame(parent, bg=BORDER, height=1).pack(fill="x", padx=24)
@@ -33,7 +34,8 @@ def page_header(parent, title, subtitle=""):
         tk.Label(hdr, text=subtitle, font=FONT_BODY, bg=DARK_BG, fg=TEXT_DIM).pack(anchor="w")
 
 def stat_pill(parent, label, val, color):
-    p = tk.Frame(parent, bg=CARD_BG, padx=16, pady=10)
+    p = tk.Frame(parent, bg=CARD_BG, padx=16, pady=10,
+                 highlightbackground=BORDER, highlightthickness=1)
     p.pack(side="left", padx=(0, 8))
     tk.Label(p, text=str(val), font=("Segoe UI", 16, "bold"), bg=CARD_BG, fg=color).pack()
     tk.Label(p, text=label, font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM).pack()
@@ -55,16 +57,10 @@ def progress_bar(parent, pct, label="", color=ACCENT, bg=CARD_BG):
 #  SHELL
 # ══════════════════════════════════════════════════════════════════
 
-class ManagerAppShell(tk.Frame):
+class ManagerAppShell(BaseAppShell):
     def __init__(self, parent, staff, db):
-        super().__init__(parent, bg=DARK_BG)
-        self.staff = staff
-        self.db = db
-        self.pack(fill="both", expand=True)
-        self._build_sidebar()
-        self.content = tk.Frame(self, bg=DARK_BG)
-        self.content.pack(side="left", fill="both", expand=True)
-        self._go("overview")
+        super().__init__(parent, staff, db)
+        self._nav("overview", "overview")
 
     def _build_sidebar(self):
         sb = tk.Frame(self, bg=PANEL_BG, width=220,
@@ -90,6 +86,7 @@ class ManagerAppShell(tk.Frame):
             ("leases",    "📄  Lease Tracker",      "leases"),
             ("perf",      "📊  Performance",        "perf"),
             ("expand",    "🌆  Expand Business",    "expand"),
+            ("explorer",  "🔍  Data Explorer",      "explorer"),
         ]:
             row = tk.Frame(sb, bg=PANEL_BG)
             row.pack(fill="x")
@@ -113,17 +110,6 @@ class ManagerAppShell(tk.Frame):
         _so.bind("<Enter>", lambda e: _so.config(bg="#FEE2E2"))
         _so.bind("<Leave>", lambda e: _so.config(bg=PANEL_BG))
 
-    def _nav(self, key, dest):
-        for k, b in self._nbtn.items():
-            b.config(bg=PANEL_BG, fg=TEXT_DIM)
-            self._nbar[k].config(bg=PANEL_BG)
-        self._nbtn[key].config(bg=HOVER_BG, fg=TEXT)
-        self._nbar[key].config(bg=ACCENT)
-        self._go(dest)
-
-    def _clear(self):
-        for w in self.content.winfo_children(): w.destroy()
-
     def _go(self, dest):
         self._clear()
         if   dest == "overview":  OverviewView(self.content, self.staff, self.db)
@@ -132,11 +118,7 @@ class ManagerAppShell(tk.Frame):
         elif dest == "leases":    AllLeasesView(self.content, self.staff, self.db)
         elif dest == "perf":      PerformanceView(self.content, self.staff, self.db)
         elif dest == "expand":    ExpandView(self.content, self.staff, self.db)
-
-    def _logout(self):
-        if messagebox.askyesno("Sign Out", "Sign out?"):
-            self.destroy()
-            self.master.show_login()
+        elif dest == "explorer":  DataExplorerView(self.content, self.staff, self.db)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -180,22 +162,25 @@ class OverviewView(tk.Frame):
 
         for s in summary:
             occ_pct = s["occupancy_pct"]
-            color = SUCCESS if occ_pct >= 80 else WARNING if occ_pct >= 50 else DANGER
+            badge_color = SUCCESS if occ_pct >= 80 else WARNING if occ_pct >= 50 else DANGER
+            bar_color   = SUCCESS if occ_pct >= 80 else ACCENT  if occ_pct >= 50 else DANGER
 
-            card = tk.Frame(inner, bg=CARD_BG, padx=24, pady=18)
+            card = tk.Frame(inner, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1)
             card.pack(fill="x", pady=(0, 10))
+            tk.Frame(card, bg=bar_color, height=4).pack(fill="x")
+            body = tk.Frame(card, bg=CARD_BG, padx=24, pady=16)
+            body.pack(fill="both", expand=True)
 
             # City header
-            hdr = tk.Frame(card, bg=CARD_BG)
+            hdr = tk.Frame(body, bg=CARD_BG)
             hdr.pack(fill="x")
             tk.Label(hdr, text=f"📍 {s['city']}", font=FONT_TITLE, bg=CARD_BG, fg=TEXT).pack(side="left")
             tk.Label(hdr, text=s["address"], font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM).pack(side="left", padx=12)
-            occ_badge = tk.Label(hdr, text=f"  {occ_pct:.0f}% occupied  ", font=FONT_SMALL,
-                                 bg=color, fg=color)
+            occ_badge = badge(hdr, f"{occ_pct:.0f}% occupied", color=badge_color)
             occ_badge.pack(side="right")
 
             # KPI row
-            kpi = tk.Frame(card, bg=CARD_BG)
+            kpi = tk.Frame(body, bg=CARD_BG)
             kpi.pack(fill="x", pady=(12, 8))
             for label, val, col in [
                 ("Units",        s["total_apts"],            TEXT),
@@ -208,15 +193,16 @@ class OverviewView(tk.Frame):
                 ("Maint Cost",   f"£{s['maint_cost']:,.0f}", WARNING),
                 ("Staff",        s["staff_count"],           TEXT_DIM),
             ]:
-                tile = tk.Frame(kpi, bg=PANEL_BG, padx=14, pady=10)
+                tile = tk.Frame(kpi, bg=PANEL_BG, padx=14, pady=10,
+                                highlightbackground=BORDER, highlightthickness=1)
                 tile.pack(side="left", padx=(0, 6))
                 tk.Label(tile, text=str(val), font=("Segoe UI", 14, "bold"), bg=PANEL_BG, fg=col).pack()
                 tk.Label(tile, text=label, font=FONT_SMALL, bg=PANEL_BG, fg=TEXT_DIM).pack()
 
             # Occupancy bar
-            progress_bar(card, occ_pct,
+            progress_bar(body, occ_pct,
                          f"Occupancy: {s['occupied']}/{s['total_apts']} units ({occ_pct:.1f}%)",
-                         color=color)
+                         color=bar_color)
 
             # Drill-down button
             mkbtn(card, f"View {s['city']} Apartments →",
@@ -313,8 +299,8 @@ class OccupancyView(tk.Frame):
         outer.pack(fill="both", expand=True, padx=28, pady=(0, 16))
 
         # Bar chart
-        sec_hdr(inner, "Occupancy by City")
-        chart = tk.Canvas(inner, bg=PANEL_BG, height=220, highlightthickness=0)
+        sec_hdr(inner, "Occupancy by City", bg=DARK_BG)
+        chart = tk.Canvas(inner, bg=PANEL_BG, height=320, highlightthickness=0)
         chart.pack(fill="x", padx=24, pady=(4, 16))
 
         def draw_chart(e):
@@ -322,43 +308,56 @@ class OccupancyView(tk.Frame):
             w = chart.winfo_width()
             n = len(occ)
             if n == 0: return
-            bar_w = max(40, (w - 80) // n - 20)
-            H = 180
+            bar_w = max(60, (w - 120) // n - 24)
+            H = 240          # bar drawing height
+            top_pad = 30     # space above bars for % labels
+            bot_pad = 28     # space below bars for city labels
+            y_base = top_pad + H
             max_total = max(s["total"] for s in occ) or 1
             for i, s in enumerate(occ):
-                x = 40 + i * (bar_w + 20)
-                occ_h = int((s["occupied"] / max_total) * H)
-                avail_h = int((s["available"] / max_total) * H)
-                maint_h = int((s.get("maintenance", 0) / max_total) * H)
+                x = 60 + i * (bar_w + 24)
+                occ_h   = int((s["occupied"]              / max_total) * H)
+                avail_h = int((s["available"]             / max_total) * H)
+                maint_h = int((s.get("maintenance", 0)   / max_total) * H)
 
-                # Stacked bars
-                y_base = H + 10
+                bar_top = y_base - occ_h - avail_h - maint_h
+
+                # Stacked bars — occupied (bottom), available (middle), maintenance (top)
                 chart.create_rectangle(x, y_base - occ_h, x + bar_w, y_base,
                                        fill=ACCENT, outline="")
                 chart.create_rectangle(x, y_base - occ_h - avail_h, x + bar_w,
                                        y_base - occ_h, fill=SUCCESS, outline="")
                 if maint_h:
-                    chart.create_rectangle(x, y_base - occ_h - avail_h - maint_h, x + bar_w,
-                                           y_base - occ_h - avail_h, fill=WARNING, outline="")
+                    chart.create_rectangle(x, bar_top, x + bar_w,
+                                           y_base - occ_h - avail_h, fill=ACCENT2, outline="")
 
+                # % label above bar with breathing room
                 pct = s["occupied"] / s["total"] * 100 if s["total"] else 0
-                chart.create_text(x + bar_w // 2, y_base - occ_h - avail_h - maint_h - 8,
-                                  text=f"{pct:.0f}%", fill=TEXT, font=("Segoe UI", 9), anchor="s")
+                chart.create_text(x + bar_w // 2, bar_top - 6,
+                                  text=f"{pct:.0f}%", fill=TEXT,
+                                  font=("Segoe UI", 10, "bold"), anchor="s")
+                # City label below bar
                 chart.create_text(x + bar_w // 2, y_base + 8,
-                                  text=s["city"], fill=TEXT_DIM, font=("Segoe UI", 9), anchor="n")
+                                  text=s["city"], fill=TEXT_DIM,
+                                  font=("Segoe UI", 9), anchor="n")
 
-            # Legend
-            legend_y = 8
-            for label, col in [("Occupied", ACCENT), ("Available", SUCCESS), ("Maintenance", WARNING)]:
-                chart.create_rectangle(w - 140, legend_y, w - 126, legend_y + 10, fill=col, outline="")
-                chart.create_text(w - 122, legend_y + 1, text=label, fill=TEXT_DIM,
-                                  font=("Segoe UI", 8), anchor="nw")
-                legend_y += 16
+            # Legend — centred below bars
+            legend_items = [("Occupied", ACCENT), ("Available", SUCCESS), ("Maintenance", ACCENT2)]
+            item_w = 100
+            total_legend_w = len(legend_items) * item_w
+            legend_x = max(60, (w - total_legend_w) // 2)
+            legend_y = y_base + bot_pad - 4
+            for label, col in legend_items:
+                chart.create_rectangle(legend_x, legend_y, legend_x + 12, legend_y + 12,
+                                       fill=col, outline="")
+                chart.create_text(legend_x + 16, legend_y + 1, text=label, fill=TEXT_DIM,
+                                  font=("Segoe UI", 9), anchor="nw")
+                legend_x += item_w
 
         chart.bind("<Configure>", draw_chart)
 
         # Detail table
-        sec_hdr(inner, "City Breakdown")
+        sec_hdr(inner, "City Breakdown", bg=DARK_BG)
         COLS = [("City", 14), ("Total", 7), ("Occupied", 10), ("Available", 10),
                 ("Maintenance", 12), ("Occ %", 8), ("Revenue", 12), ("Overdue", 10)]
         col_headers(inner, COLS)
@@ -385,7 +384,7 @@ class OccupancyView(tk.Frame):
             divider(inner)
 
         # Per-city apartment list
-        sec_hdr(inner, "Apartment Status List")
+        sec_hdr(inner, "Apartment Status List", bg=DARK_BG)
         for s in occ:
             loc_id = locs.get(s["city"])
             apts = self.db.get_all_apartments(loc_id) if loc_id else []
@@ -397,7 +396,10 @@ class OccupancyView(tk.Frame):
                 ar.pack(fill="x", padx=24, pady=1)
                 tk.Label(ar, text=f"Unit {apt.unit_number}", font=FONT_SUB, bg=CARD_BG,
                          fg=TEXT, width=10, anchor="w").pack(side="left")
-                badge(ar, apt.status).pack(side="left", padx=6)
+                badge_f = tk.Frame(ar, bg=CARD_BG, width=120)
+                badge_f.pack(side="left", padx=6)
+                badge_f.pack_propagate(False)
+                badge(badge_f, apt.status).pack(anchor="w", pady=3)
                 tk.Label(ar, text=apt.apartment_type, font=FONT_SMALL, bg=CARD_BG,
                          fg=TEXT_DIM, width=12, anchor="w").pack(side="left")
                 tk.Label(ar, text=f"£{apt.monthly_rent:,.0f}/mo", font=FONT_SMALL, bg=CARD_BG,
@@ -427,7 +429,7 @@ class FinancialView(tk.Frame):
 
         # Portfolio totals
         all_fin = self.db.get_financial_summary()
-        sec_hdr(inner, "Portfolio Totals")
+        sec_hdr(inner, "Portfolio Totals", bg=DARK_BG)
         kpi = tk.Frame(inner, bg=CARD_BG)
         kpi.pack(fill="x", padx=24, pady=(0, 16))
         for label, val, col in [
@@ -449,7 +451,7 @@ class FinancialView(tk.Frame):
                      color=SUCCESS, bg=DARK_BG)
 
         # Per-city breakdown
-        sec_hdr(inner, "By City")
+        sec_hdr(inner, "By City", bg=DARK_BG)
         COLS = [("City",14),("Billed",12),("Collected",12),("Pending",12),
                 ("Overdue",10),("Maint",10),("Rate",8)]
         col_headers(inner, COLS)
@@ -474,7 +476,7 @@ class FinancialView(tk.Frame):
             divider(inner)
 
         # Monthly revenue per city
-        sec_hdr(inner, "Monthly Revenue by City  (last 6 months)")
+        sec_hdr(inner, "Monthly Revenue by City  (last 6 months)", bg=DARK_BG)
         all_months = set()
         city_rev = {}
         for loc in locs:
@@ -485,13 +487,14 @@ class FinancialView(tk.Frame):
 
         if months:
             # Header
-            hdr_row = tk.Frame(inner, bg=PANEL_BG)
+            hdr_row = tk.Frame(inner, bg=HOVER_BG)
             hdr_row.pack(fill="x", padx=24, pady=(4, 0))
-            tk.Label(hdr_row, text="City", font=FONT_SMALL, bg=PANEL_BG, fg=TEXT_DIM,
-                     width=14, anchor="w").pack(side="left", padx=4, pady=6)
+            tk.Label(hdr_row, text="City", font=("Segoe UI", 9, "bold"), bg=HOVER_BG, fg=TEXT,
+                     width=14, anchor="w").pack(side="left", padx=4, pady=8)
             for m in months:
-                tk.Label(hdr_row, text=m[5:] if m else "—", font=FONT_SMALL, bg=PANEL_BG,
-                         fg=TEXT_DIM, width=11, anchor="w").pack(side="left", padx=4)
+                tk.Label(hdr_row, text=m[5:] if m else "—", font=("Segoe UI", 9, "bold"),
+                         bg=HOVER_BG, fg=TEXT, width=11, anchor="w").pack(side="left", padx=4)
+            tk.Frame(inner, bg=BORDER, height=1).pack(fill="x", padx=24)
 
             for loc in locs:
                 row = tk.Frame(inner, bg=CARD_BG)
@@ -517,7 +520,8 @@ class AllLeasesView(tk.Frame):
         self.db = db
         self._leases = []
         self.pack(fill="both", expand=True)
-        page_header(self, "Lease Tracker", "All active lease agreements across every city.")
+        page_header(self, "Lease Tracker",
+                    "Upcoming and expired lease agreements across every city.")
         self._build()
 
     def _get_export_leases(self):
@@ -532,13 +536,22 @@ class AllLeasesView(tk.Frame):
     def _build(self):
         fbar = tk.Frame(self, bg=DARK_BG)
         fbar.pack(fill="x", padx=28, pady=(0, 8))
-        tk.Label(fbar, text="Expiring within:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left")
-        self._days_v = tk.StringVar(value="90")
-        for label, val in [("30d","30"),("60d","60"),("90d","90"),("180d","180"),("All","3650")]:
-            tk.Radiobutton(fbar, text=label, variable=self._days_v, value=val, font=FONT_SMALL,
-                           bg=DARK_BG, fg=TEXT_DIM, selectcolor=DARK_BG, activebackground=DARK_BG,
-                           relief="flat", bd=0, cursor="hand2",
-                           command=self._load).pack(side="left", padx=6)
+        tk.Label(fbar, text="Show:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left", padx=(0,4))
+        self._win_v = tk.StringVar(value="30")
+        self._day_btns = {}
+        def _set_win(v):
+            self._win_v.set(v)
+            for k, b in self._day_btns.items():
+                b.config(bg=ACCENT if k==v else PANEL_BG, fg="white" if k==v else TEXT_DIM)
+            self._load()
+        for label, val in [("Expired","expired"),("30d","30"),("60d","60"),
+                           ("90d","90"),("180d","180"),("All","all")]:
+            b = tk.Button(fbar, text=label, font=FONT_SMALL, bg=PANEL_BG, fg=TEXT_DIM,
+                          relief="flat", bd=0, cursor="hand2", padx=10, pady=4,
+                          command=lambda v=val: _set_win(v))
+            b.pack(side="left", padx=2)
+            self._day_btns[val] = b
+        self._day_btns["30"].config(bg=ACCENT, fg="white")
         export_bar(fbar, "All Leases", self._get_export_leases).pack(side="right")
 
         self.sum_row = tk.Frame(self, bg=DARK_BG)
@@ -551,47 +564,58 @@ class AllLeasesView(tk.Frame):
         for w in self.sum_row.winfo_children(): w.destroy()
         for w in self.table.winfo_children(): w.destroy()
 
-        days = int(self._days_v.get())
-        leases = self.db.get_expiring_leases(days)  # all cities
-        self._leases = leases
+        all_leases = self.db.get_expiring_leases(3650)
 
-        expired  = [l for l in leases if getattr(l,"days_remaining",0) < 0]
-        critical = [l for l in leases if 0 <= getattr(l,"days_remaining",0) <= 30]
-        warning  = [l for l in leases if 30 < getattr(l,"days_remaining",0) <= 90]
-        beyond   = [l for l in leases if getattr(l,"days_remaining",0) > 90]
+        expired  = [l for l in all_leases if getattr(l,"days_remaining",0) < 0]
+        critical = [l for l in all_leases if 0 <= getattr(l,"days_remaining",0) <= 30]
+        warning  = [l for l in all_leases if 30 < getattr(l,"days_remaining",0) <= 90]
+        beyond   = [l for l in all_leases if getattr(l,"days_remaining",0) > 90]
 
         for label, lst, col in [("Expired",expired,DANGER),("< 30d",critical,WARNING),
                                   ("31–90d",warning,ACCENT),("90d+",beyond,SUCCESS)]:
             stat_pill(self.sum_row, label, len(lst), col)
+
+        win = self._win_v.get()
+        if win == "expired":
+            leases = expired
+        elif win == "all":
+            leases = all_leases
+        else:
+            n = int(win)
+            leases = [l for l in all_leases if 0 <= getattr(l,"days_remaining",0) <= n]
+        self._leases = leases
 
         if not leases:
             tk.Label(self.table, text="No leases in this window.", font=FONT_BODY,
                      bg=DARK_BG, fg=TEXT_DIM).pack(pady=30)
             return
 
-        COLS = [("City",12),("Unit",8),("Tenant",18),("End Date",11),
-                ("Days Left",10),("Rent",9),("Status",10)]
+        COLS = [("City",12),("Unit",8),("Tenant",20),("End Date",12),
+                ("Days Left",11),("Rent",10),("Status",10)]
         col_headers(self.table, COLS)
 
-        for l in leases:
+        for i, l in enumerate(leases):
             days_left = getattr(l, "days_remaining", 0)
             days_col = (DANGER if days_left < 0 else
                         WARNING if days_left <= 30 else
                         ACCENT if days_left <= 90 else SUCCESS)
             days_str = f"{days_left}d" if days_left >= 0 else f"Exp {abs(days_left)}d"
-            row = tk.Frame(self.table, bg=CARD_BG)
+            status_label = "Expired" if days_left < 0 else l.status
+            status_col = DANGER if days_left < 0 else sc(l.status)
+            row_bg = CARD_BG if i % 2 == 0 else HOVER_BG
+            row = tk.Frame(self.table, bg=row_bg)
             row.pack(fill="x", padx=24)
             for val, w, col in [
                 (l.location_city, 12, TEXT),
                 (l.apartment_unit, 8, TEXT),
-                (l.tenant_name,   18, TEXT),
-                (l.end_date,      11, TEXT),
-                (days_str,        10, days_col),
-                (f"£{l.monthly_rent:,.0f}", 9, TEXT),
-                (l.status,        10, sc(l.status)),
+                (l.tenant_name,   20, TEXT),
+                (l.end_date,      12, TEXT),
+                (days_str,        11, days_col),
+                (f"£{l.monthly_rent:,.0f}", 10, TEXT),
+                (status_label,    10, status_col),
             ]:
-                tk.Label(row, text=val, font=FONT_BODY, bg=CARD_BG, fg=col,
-                         width=w, anchor="w").pack(side="left", padx=4, pady=6)
+                tk.Label(row, text=val, font=FONT_BODY, bg=row_bg, fg=col,
+                         width=w, anchor="w").pack(side="left", padx=4, pady=7)
             divider(self.table)
 
 
@@ -661,11 +685,16 @@ class PerformanceView(tk.Frame):
 
         # Occupancy bars per city
         sec_hdr(inner, "Occupancy Rate")
+        bars_frame = tk.Frame(inner, bg=CARD_BG, padx=24, pady=12)
+        bars_frame.pack(fill="x", padx=24, pady=(0, 8))
         for s in summary:
-            occ_col = SUCCESS if s["occupancy_pct"] >= 80 else WARNING if s["occupancy_pct"] >= 50 else DANGER
-            progress_bar(inner, s["occupancy_pct"],
+            occ_col = SUCCESS if s["occupancy_pct"] >= 80 else ACCENT if s["occupancy_pct"] >= 50 else DANGER
+            card = tk.Frame(bars_frame, bg=PANEL_BG, padx=16, pady=10,
+                            highlightbackground=BORDER, highlightthickness=1)
+            card.pack(fill="x", pady=(0, 8))
+            progress_bar(card, s["occupancy_pct"],
                          f"{s['city']}: {s['occupied']}/{s['total_apts']} ({s['occupancy_pct']:.1f}%)",
-                         color=occ_col, bg=CARD_BG)
+                         color=occ_col, bg=PANEL_BG)
 
     def _tab_maintenance(self, nb):
         frame = self._tab(nb, "Maintenance")
@@ -740,25 +769,29 @@ class ExpandView(tk.Frame):
 
         # Current locations
         locs = self.db.get_all_locations()
-        sec_hdr(inner, f"Current Locations  ({len(locs)})")
+        sec_hdr(inner, f"Current Locations  ({len(locs)})", bg=DARK_BG)
         loc_frame = tk.Frame(inner, bg=DARK_BG)
         loc_frame.pack(fill="x", padx=24, pady=(0, 16))
         for loc in locs:
             apts = self.db.get_all_apartments(loc.id)
             staff_count = len(self.db.get_staff_for_location(loc.id))
-            card = tk.Frame(loc_frame, bg=CARD_BG, padx=20, pady=14)
+            card = tk.Frame(loc_frame, bg=CARD_BG,
+                            highlightbackground=BORDER, highlightthickness=1)
             card.pack(fill="x", pady=(0, 8))
-            top = tk.Frame(card, bg=CARD_BG)
+            tk.Frame(card, bg=ACCENT, height=4).pack(fill="x")
+            body = tk.Frame(card, bg=CARD_BG, padx=20, pady=12)
+            body.pack(fill="both", expand=True)
+            top = tk.Frame(body, bg=CARD_BG)
             top.pack(fill="x")
             tk.Label(top, text=f"📍 {loc.city}", font=FONT_TITLE, bg=CARD_BG, fg=TEXT).pack(side="left")
             tk.Label(top, text=loc.address, font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM).pack(side="left", padx=12)
             tk.Label(top, text=f"{loc.postcode}  •  {loc.country}", font=FONT_SMALL,
                      bg=CARD_BG, fg=TEXT_MUTED).pack(side="right")
-            tk.Label(card, text=f"{len(apts)} apartments  •  {staff_count} staff",
+            tk.Label(body, text=f"{len(apts)} apartments  •  {staff_count} staff",
                      font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM).pack(anchor="w", pady=(6, 0))
 
         # Add new location form
-        sec_hdr(inner, "Add New City Location")
+        sec_hdr(inner, "Add New City Location", bg=DARK_BG)
         form = tk.Frame(inner, bg=CARD_BG, padx=32, pady=24)
         form.pack(fill="x", pady=(0, 16))
         form.columnconfigure(0, weight=1)
@@ -770,28 +803,28 @@ class ExpandView(tk.Frame):
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM, wraplength=700, justify="left"
                  ).grid(row=0, column=0, columnspan=3, sticky="w", padx=6, pady=(0, 16))
 
-        self.v_city    = entry_var(form, "City Name *",      1, 0, width=22)
-        self.v_address = entry_var(form, "Office Address *", 1, 1, width=24)
-        self.v_post    = entry_var(form, "Postcode *",       1, 2, width=14)
-        countries = ["UK", "Ireland", "France", "Germany", "Spain", "Netherlands"]
-        self.v_country = combo_var(form, "Country", countries, 3, 0, default="UK", width=14)
+        self.v_city    = entry_var(form, "City Name *",      1, 0, width=22,
+                                   placeholder="e.g. Birmingham")
+        self.v_address = entry_var(form, "Office Address *", 1, 1, width=24,
+                                   placeholder="e.g. 12 High Street")
+        self.v_post    = entry_var(form, "Postcode *",       1, 2, width=14,
+                                   placeholder="e.g. B1 1AA")
 
         nav = tk.Frame(form, bg=CARD_BG, pady=16)
-        nav.grid(row=4, column=0, columnspan=3, sticky="ew")
+        nav.grid(row=3, column=0, columnspan=3, sticky="ew")
         mkbtn(nav, "Open New Location ✓", self._submit, color=SUCCESS).pack(side="right")
 
     def _submit(self):
         city    = self.v_city.get().strip()
         address = self.v_address.get().strip()
         postcode= self.v_post.get().strip()
-        country = self.v_country.get()
         if not city or not address or not postcode:
             messagebox.showwarning("Missing", "City, address and postcode are required.", parent=self)
             return
         if messagebox.askyesno("Confirm",
-                               f"Add new location:\n\n{city}\n{address}\n{postcode}, {country}\n\nProceed?",
+                               f"Add new location:\n\n{city}\n{address}\n{postcode}, UK\n\nProceed?",
                                parent=self):
-            loc_id = self.db.add_location(city, address, postcode, country)
+            loc_id = self.db.add_location(city, address, postcode, "UK")
             messagebox.showinfo("Location Added ✓",
                                 f"📍 {city} has been added to the portfolio.\n"
                                 f"Location ID: #{loc_id}\n\n"

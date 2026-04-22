@@ -12,7 +12,7 @@ from .views import (
     TEXT, TEXT_DIM, TEXT_MUTED, BORDER, HOVER_BG,
     FONT_HEAD, FONT_TITLE, FONT_SUB, FONT_BODY, FONT_SMALL,
     sc, badge, mkbtn, entry_var, combo_var, scrollable, sec_hdr, info_grid,
-    ApartmentDetailWindow, export_bar,
+    ApartmentDetailWindow, export_bar, BaseAppShell, DataExplorerView,
 )
 from models import Apartment, Staff
 
@@ -21,12 +21,13 @@ ROLES = ["Front Desk", "Finance Manager", "Maintenance Staff", "Administrator"]
 
 # ── shared helpers ────────────────────────────────────────────────────────────
 
-def col_headers(parent, cols, bg=PANEL_BG):
+def col_headers(parent, cols, bg=HOVER_BG):
     row = tk.Frame(parent, bg=bg)
     row.pack(fill="x", padx=24, pady=(4, 0))
     for label, w in cols:
-        tk.Label(row, text=label, font=FONT_SMALL, bg=bg, fg=TEXT_DIM,
-                 width=w, anchor="w").pack(side="left", padx=4, pady=6)
+        tk.Label(row, text=label, font=("Segoe UI", 9, "bold"), bg=bg, fg=TEXT,
+                 width=w, anchor="w").pack(side="left", padx=4, pady=8)
+    tk.Frame(parent, bg=BORDER, height=1).pack(fill="x", padx=24)
 
 def divider(parent):
     tk.Frame(parent, bg=BORDER, height=1).pack(fill="x", padx=24)
@@ -50,16 +51,10 @@ def stat_pill(parent, label, val, color):
 #  SHELL
 # ══════════════════════════════════════════════════════════════════
 
-class AdminAppShell(tk.Frame):
+class AdminAppShell(BaseAppShell):
     def __init__(self, parent, staff, db):
-        super().__init__(parent, bg=DARK_BG)
-        self.staff = staff
-        self.db = db
-        self.pack(fill="both", expand=True)
-        self._build_sidebar()
-        self.content = tk.Frame(self, bg=DARK_BG)
-        self.content.pack(side="left", fill="both", expand=True)
-        self._go("commune")
+        super().__init__(parent, staff, db)
+        self._nav("commune", "commune")
 
     def _build_sidebar(self):
         sb = tk.Frame(self, bg=PANEL_BG, width=220,
@@ -86,6 +81,7 @@ class AdminAppShell(tk.Frame):
             ("apartments", "🏗  Manage Apartments","apartments"),
             ("leases",     "📄  Lease Tracker",    "leases"),
             ("reports",    "📊  Reports",          "reports"),
+            ("explorer",   "🔍  Data Explorer",   "explorer"),
         ]:
             row = tk.Frame(sb, bg=PANEL_BG)
             row.pack(fill="x")
@@ -109,17 +105,6 @@ class AdminAppShell(tk.Frame):
         _so.bind("<Enter>", lambda e: _so.config(bg="#FEE2E2"))
         _so.bind("<Leave>", lambda e: _so.config(bg=PANEL_BG))
 
-    def _nav(self, key, dest):
-        for k, b in self._nbtn.items():
-            b.config(bg=PANEL_BG, fg=TEXT_DIM)
-            self._nbar[k].config(bg=PANEL_BG)
-        self._nbtn[key].config(bg=HOVER_BG, fg=TEXT)
-        self._nbar[key].config(bg=ACCENT)
-        self._go(dest)
-
-    def _clear(self):
-        for w in self.content.winfo_children(): w.destroy()
-
     def _go(self, dest):
         self._clear()
         if   dest == "commune":    AdminCommuneView(self.content, self.staff, self.db)
@@ -127,11 +112,7 @@ class AdminAppShell(tk.Frame):
         elif dest == "apartments": ApartmentsManageView(self.content, self.staff, self.db)
         elif dest == "leases":     LeaseTrackerView(self.content, self.staff, self.db)
         elif dest == "reports":    AdminReportsView(self.content, self.staff, self.db)
-
-    def _logout(self):
-        if messagebox.askyesno("Sign Out", "Sign out?"):
-            self.destroy()
-            self.master.show_login()
+        elif dest == "explorer":   DataExplorerView(self.content, self.staff, self.db)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -253,9 +234,11 @@ class AdminCommuneView(tk.Frame):
                  font=("Segoe UI", 13, "bold"), bg=CARD_BG, fg=ACCENT).pack(anchor="w", pady=(8, 0))
 
         def click(e=None, a=apt): ApartmentDetailWindow(self, a, self.staff, self.db)
-        for w in [outer, body, head]:
+        def _bind(w):
             try: w.bind("<Button-1>", click)
             except Exception: pass
+            for child in w.winfo_children(): _bind(child)
+        _bind(outer)
         outer.bind("<Enter>", lambda e: outer.config(highlightbackground=ACCENT, highlightthickness=2))
         outer.bind("<Leave>", lambda e: outer.config(highlightbackground=BORDER, highlightthickness=1))
 
@@ -581,23 +564,23 @@ class ApartmentDialog(tk.Toplevel):
         self.v_furn = tk.BooleanVar(value=a.furnished if a else False)
         self.v_park = tk.BooleanVar(value=a.parking if a else False)
         cb_row = tk.Frame(form, bg=CARD_BG)
-        cb_row.grid(row=5, column=0, columnspan=3, sticky="w", padx=6, pady=(8, 4))
+        cb_row.grid(row=6, column=0, columnspan=3, sticky="w", padx=6, pady=(8, 4))
         tk.Checkbutton(cb_row, text="Furnished", variable=self.v_furn,
                        bg=CARD_BG, fg=TEXT, selectcolor=PANEL_BG, font=FONT_BODY).pack(side="left", padx=(0, 16))
         tk.Checkbutton(cb_row, text="Parking included", variable=self.v_park,
                        bg=CARD_BG, fg=TEXT, selectcolor=PANEL_BG, font=FONT_BODY).pack(side="left")
 
         tk.Label(form, text="Description", font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM
-                 ).grid(row=6, column=0, columnspan=3, sticky="w", padx=6, pady=(8, 2))
+                 ).grid(row=7, column=0, columnspan=3, sticky="w", padx=6, pady=(8, 2))
         self.v_desc = tk.Text(form, font=FONT_BODY, bg=PANEL_BG, fg=TEXT, insertbackground=TEXT,
                                relief="flat", bd=0, width=58, height=4,
                                highlightthickness=1, highlightcolor=ACCENT, highlightbackground=BORDER)
-        self.v_desc.grid(row=7, column=0, columnspan=3, sticky="ew", padx=6)
+        self.v_desc.grid(row=8, column=0, columnspan=3, sticky="ew", padx=6)
         if a and a.description:
             self.v_desc.insert("1.0", a.description)
 
         nav = tk.Frame(form, bg=CARD_BG, pady=16)
-        nav.grid(row=8, column=0, columnspan=3, sticky="ew")
+        nav.grid(row=9, column=0, columnspan=3, sticky="ew")
         mkbtn(nav, "Cancel", self.destroy, color=TEXT_MUTED).pack(side="left")
         mkbtn(nav, "Save ✓", self._save, color=SUCCESS).pack(side="right")
 
@@ -667,16 +650,25 @@ class LeaseTrackerView(tk.Frame):
 
     def _build(self):
         page_header(self, "Lease Tracker",
-                    "Monitor lease agreements, expiry dates and renewal status at your location.")
+                    "Monitor upcoming and expired lease agreements at your location.")
         fbar = tk.Frame(self, bg=DARK_BG)
         fbar.pack(fill="x", padx=28, pady=(0, 8))
-        tk.Label(fbar, text="Show expiring within:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left")
-        self._days_v = tk.StringVar(value="90")
-        for label, days in [("30 days", "30"), ("60 days", "60"), ("90 days", "90"),
-                             ("180 days", "180"), ("All active", "3650")]:
-            tk.Radiobutton(fbar, text=label, variable=self._days_v, value=days, font=FONT_SMALL,
-                           bg=DARK_BG, fg=TEXT_DIM, selectcolor=DARK_BG, activebackground=DARK_BG,
-                           relief="flat", bd=0, cursor="hand2", command=self._load).pack(side="left", padx=6)
+        tk.Label(fbar, text="Show:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left", padx=(0,4))
+        self._win_v = tk.StringVar(value="30")
+        self._day_btns = {}
+        def _set_win(v):
+            self._win_v.set(v)
+            for k, b in self._day_btns.items():
+                b.config(bg=ACCENT if k==v else PANEL_BG, fg="white" if k==v else TEXT_DIM)
+            self._load()
+        for label, val in [("Expired","expired"),("30 days","30"),("60 days","60"),
+                           ("90 days","90"),("180 days","180"),("All","all")]:
+            b = tk.Button(fbar, text=label, font=FONT_SMALL, bg=PANEL_BG, fg=TEXT_DIM,
+                          relief="flat", bd=0, cursor="hand2", padx=10, pady=4,
+                          command=lambda d=val: _set_win(d))
+            b.pack(side="left", padx=2)
+            self._day_btns[val] = b
+        self._day_btns["30"].config(bg=ACCENT, fg="white")
         export_bar(fbar, "Leases", self._get_export_leases).pack(side="right")
 
         self.sum_row = tk.Frame(self, bg=DARK_BG)
@@ -688,34 +680,41 @@ class LeaseTrackerView(tk.Frame):
         for w in self.sum_row.winfo_children(): w.destroy()
         for w in self.table.winfo_children(): w.destroy()
 
-        days = int(self._days_v.get())
-        leases = self.db.get_expiring_leases(days, self.staff.location_id)
-        self._leases = leases
+        all_leases = self.db.get_expiring_leases(3650, self.staff.location_id)
 
-        expired   = [l for l in leases if getattr(l, "days_remaining", 0) < 0]
-        critical  = [l for l in leases if 0 <= getattr(l, "days_remaining", 0) <= 30]
-        warning   = [l for l in leases if 30 < getattr(l, "days_remaining", 0) <= 90]
-        upcoming  = [l for l in leases if getattr(l, "days_remaining", 0) > 90]
+        expired   = [l for l in all_leases if getattr(l, "days_remaining", 0) < 0]
+        critical  = [l for l in all_leases if 0 <= getattr(l, "days_remaining", 0) <= 30]
+        warning   = [l for l in all_leases if 30 < getattr(l, "days_remaining", 0) <= 90]
+        upcoming  = [l for l in all_leases if getattr(l, "days_remaining", 0) > 90]
 
         for label, lst, col in [("Expired", expired, DANGER),
                                   ("< 30 days", critical, WARNING),
                                   ("31–90 days", warning, ACCENT),
                                   ("90+ days", upcoming, SUCCESS)]:
-            if lst or label in ("Expired", "< 30 days"):
-                stat_pill(self.sum_row, label, len(lst), col)
+            stat_pill(self.sum_row, label, len(lst), col)
+
+        win = self._win_v.get()
+        if win == "expired":
+            leases = expired
+        elif win == "all":
+            leases = all_leases
+        else:
+            n = int(win)
+            leases = [l for l in all_leases if 0 <= getattr(l, "days_remaining", 0) <= n]
+        self._leases = leases
 
         if not leases:
-            tk.Label(self.table, text="No leases expiring within the selected period.",
+            tk.Label(self.table, text="No leases in this window.",
                      font=FONT_BODY, bg=DARK_BG, fg=TEXT_DIM).pack(pady=30)
             return
 
         COLS = [("Lease #", 8), ("Tenant", 18), ("Unit", 8), ("Start", 11),
-                ("End Date", 11), ("Days Left", 10), ("Rent", 9), ("Status", 10), ("Actions", 20)]
+                ("End Date", 11), ("Days Left", 12), ("Rent", 9), ("Status", 10), ("Actions", 20)]
         col_headers(self.table, COLS)
 
-        for l in leases:
+        for i, l in enumerate(leases):
             days_left = getattr(l, "days_remaining", 0)
-            row_bg = CARD_BG
+            row_bg = CARD_BG if i % 2 == 0 else HOVER_BG
             row = tk.Frame(self.table, bg=row_bg)
             row.pack(fill="x", padx=24)
 
@@ -723,15 +722,17 @@ class LeaseTrackerView(tk.Frame):
                         WARNING if days_left <= 30 else
                         ACCENT if days_left <= 90 else SUCCESS)
             days_str = f"{days_left}d" if days_left >= 0 else f"Expired {abs(days_left)}d ago"
+            status_label = "Expired" if days_left < 0 else l.status
+            status_col = DANGER if days_left < 0 else sc(l.status)
 
             for val, w, col in [
                 (f"#{l.id}", 8, TEXT), (l.tenant_name, 18, TEXT),
                 (l.apartment_unit, 8, TEXT), (l.start_date, 11, TEXT),
-                (l.end_date, 11, TEXT), (days_str, 10, days_col),
-                (f"£{l.monthly_rent:,.0f}", 9, TEXT), (l.status, 10, sc(l.status)),
+                (l.end_date, 11, TEXT), (days_str, 12, days_col),
+                (f"£{l.monthly_rent:,.0f}", 9, TEXT), (status_label, 10, status_col),
             ]:
                 tk.Label(row, text=val, font=FONT_BODY, bg=row_bg, fg=col,
-                         width=w, anchor="w").pack(side="left", padx=4, pady=6)
+                         width=w, anchor="w").pack(side="left", padx=4, pady=7)
 
             act = tk.Frame(row, bg=row_bg)
             act.pack(side="left", padx=4)

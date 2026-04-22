@@ -12,7 +12,7 @@ from .views import (
     TEXT, TEXT_DIM, TEXT_MUTED, BORDER, HOVER_BG,
     FONT_HEAD, FONT_TITLE, FONT_SUB, FONT_BODY, FONT_SMALL,
     sc, badge, mkbtn, entry_var, combo_var, scrollable, sec_hdr, info_grid,
-    ApartmentDetailWindow, export_bar,
+    ApartmentDetailWindow, export_bar, BaseAppShell,
 )
 
 AVAIL_COLORS = {
@@ -47,16 +47,10 @@ def page_header(parent, title, subtitle=""):
 # ══════════════════════════════════════════════════════════════════
 #  SHELL
 # ══════════════════════════════════════════════════════════════════
-class MaintenanceAppShell(tk.Frame):
+class MaintenanceAppShell(BaseAppShell):
     def __init__(self, parent, staff, db):
-        super().__init__(parent, bg=DARK_BG)
-        self.staff = staff
-        self.db = db
-        self.pack(fill="both", expand=True)
-        self._build_sidebar()
-        self.content = tk.Frame(self, bg=DARK_BG)
-        self.content.pack(side="left", fill="both", expand=True)
-        self._go("requests")
+        super().__init__(parent, staff, db)
+        self._nav("requests", "requests")
 
     def _build_sidebar(self):
         sb = tk.Frame(self, bg=PANEL_BG, width=218,
@@ -102,17 +96,6 @@ class MaintenanceAppShell(tk.Frame):
         _so.bind("<Enter>", lambda e: _so.config(bg="#FEE2E2"))
         _so.bind("<Leave>", lambda e: _so.config(bg=PANEL_BG))
 
-    def _nav(self, key, dest):
-        for k, b in self._nbtn.items():
-            b.config(bg=PANEL_BG, fg=TEXT_DIM)
-            self._nbar[k].config(bg=PANEL_BG)
-        self._nbtn[key].config(bg=HOVER_BG, fg=TEXT)
-        self._nbar[key].config(bg=ACCENT)
-        self._go(dest)
-
-    def _clear(self):
-        for w in self.content.winfo_children(): w.destroy()
-
     def _go(self, dest):
         self._clear()
         if   dest == "commune":  MaintCommuneView(self.content, self.staff, self.db)
@@ -122,11 +105,6 @@ class MaintenanceAppShell(tk.Frame):
         elif dest == "add":
             AddRequestView(self.content, self.staff, self.db,
                            on_complete=lambda: self._nav("requests", "requests"))
-
-    def _logout(self):
-        if messagebox.askyesno("Sign Out", "Sign out?"):
-            self.destroy()
-            self.master.show_login()
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -166,11 +144,20 @@ class MaintCommuneView(tk.Frame):
         se.bind("<FocusOut>", lambda e: se.insert(0, placeholder) if se.get() == "" else None)
         self.sv.trace("w", lambda *a: self._filter())
         self._sf = tk.StringVar(value="All")
+        self._sf_btns = {}
         tk.Label(fbar, text="  Filter:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left", padx=(12, 4))
-        for s, c in [("All", TEXT_DIM), ("Available", SUCCESS), ("Occupied", ACCENT), ("Under Maintenance", WARNING)]:
-            tk.Radiobutton(fbar, text=s, variable=self._sf, value=s, font=FONT_SMALL,
-                           bg=DARK_BG, fg=c, selectcolor=DARK_BG, activebackground=DARK_BG,
-                           relief="flat", bd=0, cursor="hand2", command=self._filter).pack(side="left", padx=4)
+        def _set_sf(v):
+            self._sf.set(v)
+            for k, b in self._sf_btns.items():
+                b.config(bg=ACCENT if k==v else PANEL_BG, fg="white" if k==v else TEXT_DIM)
+            self._filter()
+        for s in ["All", "Available", "Occupied", "Under Maintenance"]:
+            b = tk.Button(fbar, text=s, font=FONT_SMALL, bg=PANEL_BG, fg=TEXT_DIM,
+                          relief="flat", bd=0, cursor="hand2", padx=10, pady=4,
+                          command=lambda v=s: _set_sf(v))
+            b.pack(side="left", padx=2)
+            self._sf_btns[s] = b
+        self._sf_btns["All"].config(bg=ACCENT, fg="white")
 
         outer, self.grid_inner = scrollable(self, DARK_BG)
         outer.pack(fill="both", expand=True, padx=28, pady=(0, 16))
@@ -299,20 +286,35 @@ class RequestsView(tk.Frame):
         fbar = tk.Frame(self, bg=DARK_BG)
         fbar.pack(fill="x", padx=28, pady=(0, 6))
         self._sf = tk.StringVar(value="All")
+        self._sf_btns = {}
         tk.Label(fbar, text="Status:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left")
-        for s, c in [("All", TEXT_DIM), ("Open", DANGER), ("In Progress", ACCENT),
-                     ("Resolved", SUCCESS), ("Closed", TEXT_MUTED)]:
-            tk.Radiobutton(fbar, text=s, variable=self._sf, value=s, font=FONT_SMALL,
-                           bg=DARK_BG, fg=c, selectcolor=DARK_BG, activebackground=DARK_BG,
-                           relief="flat", bd=0, cursor="hand2",
-                           command=self._filter).pack(side="left", padx=5)
+        def _set_sf(v):
+            self._sf.set(v)
+            for k, b in self._sf_btns.items():
+                b.config(bg=ACCENT if k==v else PANEL_BG, fg="white" if k==v else TEXT_DIM)
+            self._filter()
+        for s in ["All", "Open", "In Progress", "Resolved", "Closed"]:
+            b = tk.Button(fbar, text=s, font=FONT_SMALL, bg=PANEL_BG, fg=TEXT_DIM,
+                          relief="flat", bd=0, cursor="hand2", padx=10, pady=4,
+                          command=lambda v=s: _set_sf(v))
+            b.pack(side="left", padx=2)
+            self._sf_btns[s] = b
+        self._sf_btns["All"].config(bg=ACCENT, fg="white")
         self._pf = tk.StringVar(value="All")
+        self._pf_btns = {}
         tk.Label(fbar, text="  Priority:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left", padx=(12, 4))
-        for s, c in [("All", TEXT_DIM), ("Urgent", DANGER), ("High", WARNING), ("Medium", WARNING), ("Low", SUCCESS)]:
-            tk.Radiobutton(fbar, text=s, variable=self._pf, value=s, font=FONT_SMALL,
-                           bg=DARK_BG, fg=c, selectcolor=DARK_BG, activebackground=DARK_BG,
-                           relief="flat", bd=0, cursor="hand2",
-                           command=self._filter).pack(side="left", padx=3)
+        def _set_pf(v):
+            self._pf.set(v)
+            for k, b in self._pf_btns.items():
+                b.config(bg=ACCENT if k==v else PANEL_BG, fg="white" if k==v else TEXT_DIM)
+            self._filter()
+        for s in ["All", "Urgent", "High", "Medium", "Low"]:
+            b = tk.Button(fbar, text=s, font=FONT_SMALL, bg=PANEL_BG, fg=TEXT_DIM,
+                          relief="flat", bd=0, cursor="hand2", padx=10, pady=4,
+                          command=lambda v=s: _set_pf(v))
+            b.pack(side="left", padx=2)
+            self._pf_btns[s] = b
+        self._pf_btns["All"].config(bg=ACCENT, fg="white")
         export_bar(fbar, "Maintenance Jobs", self._get_export_requests).pack(side="right")
         self.sum_row = tk.Frame(self, bg=DARK_BG)
         self.sum_row.pack(fill="x", padx=28, pady=(0, 4))
@@ -554,6 +556,7 @@ class RequestDetailWindow(tk.Toplevel):
         unavail  = [w for w in workers if w.availability != "Available"]
 
         self._sel_worker = tk.IntVar(value=-1)
+        self._worker_indicators = {}
 
         if matching:
             tk.Label(inner, text=f"✓  Specialists in {cat}", font=FONT_SMALL,
@@ -581,10 +584,11 @@ class RequestDetailWindow(tk.Toplevel):
         bg = PANEL_BG if highlight else CARD_BG
         row = tk.Frame(parent, bg=bg, padx=16, pady=10)
         row.pack(fill="x", padx=24, pady=2)
-        rb = tk.Radiobutton(row, variable=self._sel_worker, value=w.id,
-                             bg=bg, activebackground=bg,
-                             state="disabled" if disabled else "normal")
-        rb.pack(side="left", padx=(0, 10))
+        ind = tk.Canvas(row, width=22, height=22, bg=bg, highlightthickness=0)
+        ind.create_oval(2, 2, 20, 20, outline=TEXT_MUTED if disabled else BORDER, width=2)
+        ind.pack(side="left", padx=(0, 12))
+        if not disabled:
+            self._worker_indicators[w.id] = ind
         info = tk.Frame(row, bg=bg)
         info.pack(side="left", fill="x", expand=True)
         top = tk.Frame(info, bg=bg)
@@ -600,10 +604,22 @@ class RequestDetailWindow(tk.Toplevel):
                 tk.Label(top, text=f" {sp} ", font=FONT_SMALL, bg=col+"22", fg=col).pack(side="left", padx=2)
         tk.Label(info, text=f"📞 {w.phone}  •  £{w.hourly_rate:.0f}/hr  •  {w.notes or ''}",
                  font=FONT_SMALL, bg=bg, fg=TEXT_DIM).pack(anchor="w")
-        def click(e=None, wid=w.id): self._sel_worker.set(wid)
+        def click(e=None, wid=w.id):
+            self._sel_worker.set(wid)
+            self._refresh_worker_selection()
         for wdg in [row, info, top]:
             try: wdg.bind("<Button-1>", click)
             except Exception: pass
+
+    def _refresh_worker_selection(self):
+        sel = self._sel_worker.get()
+        for wid, ind in self._worker_indicators.items():
+            ind.delete("all")
+            if wid == sel:
+                ind.create_oval(2, 2, 20, 20, fill=ACCENT, outline="")
+                ind.create_text(11, 11, text="✓", fill="white", font=("Segoe UI", 9, "bold"))
+            else:
+                ind.create_oval(2, 2, 20, 20, outline=BORDER, width=2)
 
     def _render_assignments(self):
         for w in self._asgn_frame.winfo_children(): w.destroy()
@@ -851,7 +867,7 @@ class WorkersView(tk.Frame):
             sp = sp.strip()
             if sp:
                 tk.Label(spec_row, text=f" {sp} ", font=FONT_SMALL,
-                         bg=ACCENT, fg=ACCENT).pack(side="left", padx=(0,4))
+                         bg="#DBEAFE", fg=ACCENT).pack(side="left", padx=(0,4))
 
         meta = tk.Frame(card, bg=CARD_BG)
         meta.pack(fill="x", pady=(6,0))
@@ -945,10 +961,19 @@ class JobTypesView(tk.Frame):
         tk.Label(fbar, text="Category:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left")
         cats = ["All"] + self.db.get_maintenance_categories()
         self._cat_v = tk.StringVar(value="All")
+        self._cat_btns = {}
+        def _set_cat(v):
+            self._cat_v.set(v)
+            for k, b in self._cat_btns.items():
+                b.config(bg=ACCENT if k==v else PANEL_BG, fg="white" if k==v else TEXT_DIM)
+            self._render()
         for cat in cats:
-            tk.Radiobutton(fbar, text=cat, variable=self._cat_v, value=cat, font=FONT_SMALL,
-                           bg=DARK_BG, fg=TEXT_DIM, selectcolor=DARK_BG, activebackground=DARK_BG,
-                           relief="flat", bd=0, cursor="hand2", command=self._render).pack(side="left", padx=5)
+            b = tk.Button(fbar, text=cat, font=FONT_SMALL, bg=PANEL_BG, fg=TEXT_DIM,
+                          relief="flat", bd=0, cursor="hand2", padx=10, pady=4,
+                          command=lambda v=cat: _set_cat(v))
+            b.pack(side="left", padx=2)
+            self._cat_btns[cat] = b
+        self._cat_btns["All"].config(bg=ACCENT, fg="white")
         outer, self.inner = scrollable(self, DARK_BG)
         outer.pack(fill="both", expand=True)
         self._render()

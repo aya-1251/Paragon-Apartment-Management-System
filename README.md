@@ -22,7 +22,7 @@ The system features:
 | File | Responsibility |
 | :--- | :--- |
 | `main.py` | App entry point — owns the root window and dispatches to the correct role shell on login |
-| `views.py` | Shared UI classes and helpers: `LoginView`, `CommuneView` (apartment grid), `ApartmentDetailWindow`, palette constants, `export_bar` |
+| `views.py` | Shared UI classes and helpers: `LoginView`, `CommuneView` (apartment grid), `ApartmentDetailWindow`, `DataExplorerView`, `EarlyTerminationDialog`, palette constants, `export_bar` |
 | `views_admin.py` | Administrator shell — staff management, apartment management, lease tracker, reports |
 | `views_finance.py` | Finance Manager shell — payments ledger, invoice creation, late payments, financial reports |
 | `views_maintenance.py` | Maintenance Staff shell — job queue, worker roster, job-type catalogue, add request |
@@ -68,10 +68,13 @@ Subsequent launches skip the seed step (detected via row count on the `locations
 
 All accounts share the same password: **`password123`**
 
-### Administrator
+### Administrator (one per city)
 | Username | Location |
 | :--- | :--- |
 | `admin1` | Bristol |
+| `admin2` | Cardiff |
+| `admin3` | London |
+| `admin4` | Manchester |
 
 ### Front Desk Staff
 | Username | Location |
@@ -115,6 +118,7 @@ All accounts share the same password: **`password123`**
 | Lease Tracker | ✅ | ❌ | ❌ | ❌ | ✅ (all cities) |
 | Register / Update Tenant | ❌ | ✅ | ❌ | ❌ | ❌ |
 | Log Complaint | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Request Early Termination | ❌ | ✅ | ❌ | ❌ | ❌ |
 | Payments Ledger | ❌ | ❌ | ✅ | ❌ | ❌ |
 | Create Invoice | ❌ | ❌ | ✅ | ❌ | ❌ |
 | Late Payments / Notify | ❌ | ❌ | ✅ | ❌ | ❌ |
@@ -126,6 +130,7 @@ All accounts share the same password: **`password123`**
 | Occupancy Charts | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Performance Reports | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Expand Business (add city) | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Data Explorer (raw tables) | ✅ | ❌ | ❌ | ❌ | ✅ |
 | CSV / PDF Export | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ---
@@ -158,13 +163,28 @@ The Maintenance shell supports the full job lifecycle:
 
 Workers are managed separately (roster, specialties, hourly rate, availability). A job-type catalogue provides typical cost ranges and required specialties per category.
 
-### 7.4 Security
-- Passwords are stored as **SHA-256 hashes** — never in plaintext
-- Each role shell only renders the UI surface appropriate to that role; there are no hidden buttons or disabled elements that could be bypassed
-- SQLite parameterised queries throughout — no string-interpolated SQL
+### 7.4 Early Termination Workflow
+Front Desk can record an early lease exit from the **Lease & Tenant** tab on any apartment with an active lease. The dialog enforces the company policy encoded in `Lease`:
+- **30 days' notice** required (`REQUIRED_NOTICE_DAYS`)
+- **5% penalty** on monthly rent (`EARLY_TERMINATION_PENALTY_RATE`)
 
-### 7.5 Auto-Seeded Demo Data
-On first launch the system creates **4 cities**, **14 staff accounts**, **17 apartments**, **8 tenants**, **11 leases**, a rich payment history (paid, pending, overdue), and several maintenance requests — no manual setup step required.
+The earliest exit date auto-updates as the user edits the notice date. On confirmation the lease is marked Terminated, the apartment flips to Available, and the notice/termination dates plus the penalty owed are persisted.
+
+### 7.5 Late Payment Notice
+The Finance Manager can generate a formatted **Late Payment Notice** for any overdue payment. The notice template (sender, tenant address, amount outstanding, original due date) is rendered in-app and explicitly emulated — no real email is sent — satisfying the spec's "generates notification if the payment is late" requirement for a desktop application.
+
+### 7.6 Data Explorer
+Administrators (scoped to their city) and Managers (all cities) get a **Data Explorer** view that lets them browse the raw rows of any of 9 whitelisted tables in a Treeview. Clicking a row expands a horizontally scrollable detail panel of column-cards with status colouring. The `password_hash` column is masked as `••••••••` server-side in `get_table_data()`. Both CSV and PDF export are available from the same view.
+
+### 7.7 Security
+- Passwords are stored as **salted SHA-256** in `SALT:HASH` format — each account gets a unique 16-byte random salt, so identical passwords produce different stored hashes (defeats rainbow-table attacks). `_verify_password` accepts both salted and legacy unsalted hashes for backward compatibility.
+- **Role-Based Access Control** — each role shell only renders the UI surface appropriate to that role; there are no hidden buttons that could be bypassed. Admin queries are additionally scoped to `location_id` at the DB layer.
+- **Input validation** — NI number regex `[A-Z]{2}\d{6}[A-Z]` and UK phone regex `(\+44|0)\d{9,10}` are enforced in the Register Tenant wizard.
+- **SQL injection prevention** — all queries use SQLite parameterised statements. The Data Explorer's table-name parameter is checked against a `_ALLOWED` whitelist before any f-string interpolation.
+- **CSV injection prevention** — exported cells starting with `=`, `+`, `-`, or `@` are prefixed with `'` to neutralise spreadsheet formula execution.
+
+### 7.8 Auto-Seeded Demo Data
+On first launch the system creates **4 cities**, **17 staff accounts** (4 admins, 4 front desk, 4 finance, 4 maintenance, 1 manager), **17 apartments**, **8 tenants**, **11 leases**, a rich payment history (paid, pending, overdue), and several maintenance requests — no manual setup step required.
 
 ---
 

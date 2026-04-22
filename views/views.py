@@ -2,19 +2,21 @@
 Views module — all Tkinter UI classes for the Property Management System.
 Commune page: apartment grid → apartment detail (tabbed: overview, lease+tenant, payments, maintenance, complaints)
 """
+import re
 import tkinter as tk
 from tkinter import ttk, messagebox
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional, Callable, List
+from abc import ABC, abstractmethod
 from models import (
     Tenant, Lease, Apartment, Payment, Complaint, MaintenanceRequest,
     LeaseStatus, ApartmentStatus, ComplaintStatus, MaintenancePriority
 )
 
 # ─────────────────────────── PALETTE (light mode) ──────────────────────────
-DARK_BG    = "#F7F7F5"   # page background — warm off-white
+DARK_BG    = "#E8ECF0"   # page background — slate-blue-gray
 PANEL_BG   = "#FFFFFF"   # sidebar / panels — pure white
-CARD_BG    = "#FFFFFF"   # cards — white with border
+CARD_BG    = "#FFFFFF"   # cards — white, pops against DARK_BG
 ACCENT     = "#2563EB"   # primary blue (indigo-600)
 ACCENT2    = "#6D28D9"   # secondary violet
 SUCCESS    = "#0D6E43"   # forest green — readable, not neon
@@ -160,20 +162,39 @@ def combo_var(parent, label, opts, row, col=0, default=None, width=22):
     return var
 
 def scrollable(parent, bg=CARD_BG):
-    """Returns (outer, inner). Pack outer."""
+    """Returns (outer, inner). Pack outer.
+
+    Two-finger touchpad scroll and mouse wheel work over any child widget
+    because _bind_tree propagates <MouseWheel> down the full widget tree
+    each time a child is added (triggered by <Configure>).
+    """
     outer = tk.Frame(parent, bg=bg)
     canvas = tk.Canvas(outer, bg=bg, highlightthickness=0)
     sb = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
     inner = tk.Frame(canvas, bg=bg)
-    inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-    canvas.create_window((0,0), window=inner, anchor="nw")
+    canvas.create_window((0, 0), window=inner, anchor="nw")
     canvas.configure(yscrollcommand=sb.set)
     canvas.pack(side="left", fill="both", expand=True)
     sb.pack(side="right", fill="y")
-    canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(-1*(e.delta//120), "units"))
+
+    def _scroll(e):
+        canvas.yview_scroll(-1 * (e.delta // 120), "units")
+
+    def _bind_tree(widget):
+        widget.bind("<MouseWheel>", _scroll)
+        for child in widget.winfo_children():
+            _bind_tree(child)
+
+    def _on_configure(e):
+        canvas.configure(scrollregion=canvas.bbox("all"))
+        _bind_tree(inner)
+
+    inner.bind("<Configure>", _on_configure)
+    canvas.bind("<MouseWheel>", _scroll)
     return outer, inner
 
-def sec_hdr(parent, title, bg=CARD_BG):
+def sec_hdr(parent, title, bg=None):
+    bg = bg if bg is not None else parent.cget("bg")
     row = tk.Frame(parent, bg=bg)
     row.pack(fill="x", padx=24, pady=(20,6))
     tk.Label(row, text=title, font=FONT_SUB, bg=bg, fg=TEXT).pack(side="left")
@@ -194,62 +215,322 @@ def info_grid(parent, fields, cols=3, bg=CARD_BG):
 # ══════════════════════════════════════════════════════════════════════════════
 #  LOGIN
 # ══════════════════════════════════════════════════════════════════════════════
-class LoginView(tk.Frame):
-    def __init__(self, parent, on_login):
+# ══════════════════════════════════════════════════════════════════════════════
+#  DATA EXPLORER  — Treeview + row-detail panel (ported from prototype)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class DataExplorerView(tk.Frame):
+    _TABLES = [
+        ("apartments",         "Apartments"),
+        ("tenants",            "Tenants"),
+        ("leases",             "Leases"),
+        ("payments",           "Payments"),
+        ("maintenance_requests","Maintenance"),
+        ("complaints",         "Complaints"),
+        ("staff",              "Staff"),
+        ("workers",            "Workers"),
+    ]
+    _MASKED = {"password_hash"}
+    _STATUS_COLOURS = {
+        "active": SUCCESS, "available": SUCCESS, "paid": SUCCESS, "resolved": SUCCESS,
+        "occupied": ACCENT, "in progress": ACCENT,
+        "pending": WARNING, "open": WARNING, "under maintenance": WARNING,
+        "under review": ACCENT2, "partial": WARNING, "medium": WARNING,
+        "overdue": DANGER, "terminated": DANGER, "expired": DANGER,
+        "high": DANGER, "urgent": DANGER,
+        "closed": TEXT_DIM, "low": SUCCESS,
+    }
+
+    def __init__(self, parent, staff, db):
         super().__init__(parent, bg=DARK_BG)
-        self.on_login = on_login
+        self.staff = staff
+        self.db    = db
+        self._columns: list = []
+        self._rows:    list = []
         self.pack(fill="both", expand=True)
         self._build()
 
     def _build(self):
-        left = tk.Frame(self, bg=DARK_BG, width=360)
-        left.pack(side="left", fill="y")
-        left.pack_propagate(False)
-        tk.Label(left, text="🏢", font=("Segoe UI Emoji", 48), bg=DARK_BG, fg=ACCENT).pack(pady=(70,12))
-        tk.Label(left, text="PAMS", font=("Segoe UI",20,"bold"), bg=DARK_BG, fg=TEXT).pack()
-        tk.Label(left, text="Paragon Apartment Management System", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(pady=(4,28))
-        for feat in ["Apartment Grid Overview", "Full Lease & Tenant Records",
-                     "Payment History", "Maintenance & Complaints"]:
-            r = tk.Frame(left, bg=DARK_BG)
-            r.pack(fill="x", padx=36, pady=5)
-            badge_f = tk.Frame(r, bg=SUCCESS, width=20, height=20)
-            badge_f.pack(side="left", padx=(0,10))
-            badge_f.pack_propagate(False)
-            tk.Label(badge_f, text="✓", font=("Segoe UI",9,"bold"), bg=SUCCESS, fg="white").pack(expand=True)
-            tk.Label(r, text=feat, font=FONT_BODY, bg=DARK_BG, fg=TEXT_DIM).pack(side="left")
+        # ── header ──────────────────────────────────────────────────
+        hdr = tk.Frame(self, bg=DARK_BG, padx=28, pady=18)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="Data Explorer", font=FONT_HEAD,
+                 bg=DARK_BG, fg=TEXT).pack(anchor="w")
+        tk.Label(hdr, text="Choose a table, then click any row to inspect every field as a detail card.",
+                 font=FONT_BODY, bg=DARK_BG, fg=TEXT_DIM).pack(anchor="w")
 
-        tk.Frame(left, bg=DARK_BG).pack(fill="both", expand=True)
-        bottom = tk.Frame(left, bg=ACCENT, padx=24, pady=20)
-        bottom.pack(fill="x")
-        tk.Label(bottom, text="Trusted by property managers\nacross the UK",
-                 font=FONT_SMALL, bg=ACCENT, fg="white", justify="left").pack(anchor="w")
+        # ── table selector pills + export bar ────────────────────────
+        pill_row = tk.Frame(self, bg=DARK_BG, padx=28)
+        pill_row.pack(fill="x", pady=(0, 10))
+        self._pill_btns = {}
+        for key, label in self._TABLES:
+            b = tk.Button(pill_row, text=label, font=FONT_SMALL,
+                          relief="flat", bd=0, cursor="hand2",
+                          padx=14, pady=6,
+                          command=lambda k=key: self._load_table(k))
+            b.pack(side="left", padx=(0, 6))
+            self._pill_btns[key] = b
+        self._refresh_pills(None)
+        export_bar(pill_row, "PAMS_Data",
+                   lambda: (self._columns, self._rows),
+                   bg=DARK_BG).pack(side="right")
 
-        right = tk.Frame(self, bg=PANEL_BG)
+        # ── detail panel (fixed height, anchored to bottom) ──────────
+        det = tk.Frame(self, bg=CARD_BG,
+                       highlightbackground=BORDER, highlightthickness=1,
+                       height=210)
+        det.pack(side="bottom", fill="x", padx=20, pady=(0, 14))
+        det.pack_propagate(False)
+
+        det_hdr = tk.Frame(det, bg=HOVER_BG, height=32)
+        det_hdr.pack(fill="x")
+        det_hdr.pack_propagate(False)
+        tk.Label(det_hdr, text="  ROW DETAIL",
+                 font=("Segoe UI", 9, "bold"), bg=HOVER_BG, fg=TEXT_DIM
+                 ).pack(side="left", pady=8)
+        tk.Frame(det, bg=BORDER, height=1).pack(fill="x")
+
+        self._detail_host = tk.Frame(det, bg=CARD_BG)
+        self._detail_host.pack(fill="both", expand=True)
+        self._detail_placeholder("Select a table above, then click a row to see its fields here.")
+
+        # ── treeview area (fills remaining space) ────────────────────
+        self._tree_area = tk.Frame(self, bg=DARK_BG)
+        self._tree_area.pack(fill="both", expand=True, padx=20, pady=(0, 6))
+
+    # ── pills ────────────────────────────────────────────────────────
+
+    def _refresh_pills(self, active):
+        for key, b in self._pill_btns.items():
+            if key == active:
+                b.config(bg=ACCENT, fg="white",
+                         activebackground=ACCENT, activeforeground="white")
+            else:
+                b.config(bg=CARD_BG, fg=TEXT_DIM,
+                         activebackground=HOVER_BG, activeforeground=TEXT)
+
+    # ── detail panel helpers ─────────────────────────────────────────
+
+    def _detail_placeholder(self, msg):
+        for w in self._detail_host.winfo_children():
+            w.destroy()
+        tk.Label(self._detail_host, text=msg, font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT_MUTED).pack(pady=24, padx=24, anchor="w")
+
+    def _show_row_detail(self, columns, values):
+        for w in self._detail_host.winfo_children():
+            w.destroy()
+
+        # Horizontally scrollable row of cards
+        canvas = tk.Canvas(self._detail_host, bg=CARD_BG, highlightthickness=0)
+        xsb = ttk.Scrollbar(self._detail_host, orient="horizontal",
+                             command=canvas.xview)
+        xsb.pack(side="bottom", fill="x")
+        canvas.pack(fill="both", expand=True)
+        canvas.configure(xscrollcommand=xsb.set)
+
+        inner = tk.Frame(canvas, bg=CARD_BG)
+        win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>",
+                   lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>",
+                    lambda e: canvas.itemconfig(win_id, height=e.height))
+
+        for col, raw in zip(columns, values):
+            if col in self._MASKED:
+                display, colour = "••••••••", TEXT_MUTED
+            elif raw in (None, "", "None"):
+                display, colour = "—", TEXT_MUTED
+            else:
+                display = str(raw)
+                colour = self._STATUS_COLOURS.get(display.lower(), TEXT)
+
+            card = tk.Frame(inner, bg=PANEL_BG,
+                            highlightbackground=BORDER, highlightthickness=1,
+                            width=165, height=130)
+            card.pack(side="left", padx=8, pady=8)
+            card.pack_propagate(False)
+
+            tk.Label(card, text=col.replace("_", " ").upper(),
+                     font=("Segoe UI", 8, "bold"), bg=PANEL_BG, fg=TEXT_MUTED
+                     ).place(x=12, y=10)
+            tk.Frame(card, bg=BORDER, height=1).place(x=12, y=32, width=141)
+            tk.Label(card, text=display,
+                     font=("Segoe UI", 11, "bold"), bg=PANEL_BG, fg=colour,
+                     wraplength=141, justify="left"
+                     ).place(x=12, y=42)
+
+    # ── load table ───────────────────────────────────────────────────
+
+    def _load_table(self, table_name):
+        self._refresh_pills(table_name)
+        self._detail_placeholder("Click a row to inspect it.")
+
+        for w in self._tree_area.winfo_children():
+            w.destroy()
+
+        loc_id = None if self.staff.is_manager() else self.staff.location_id
+        try:
+            columns, rows = self.db.get_table_data(table_name, location_id=loc_id)
+        except Exception as ex:
+            self._columns, self._rows = [], []
+            tk.Label(self._tree_area, text=f"Error loading table: {ex}",
+                     font=FONT_BODY, bg=DARK_BG, fg=DANGER).pack(pady=30)
+            return
+
+        self._columns, self._rows = columns, rows
+
+        if not rows:
+            tk.Label(self._tree_area, text="No records found for this table.",
+                     font=FONT_BODY, bg=DARK_BG, fg=TEXT_MUTED).pack(pady=30)
+            return
+
+        # Card wrapper for the treeview
+        card = tk.Frame(self._tree_area, bg=CARD_BG,
+                        highlightbackground=BORDER, highlightthickness=1)
+        card.pack(fill="both", expand=True)
+
+        ysb = ttk.Scrollbar(card, orient="vertical")
+        ysb.pack(side="right", fill="y")
+        xsb = ttk.Scrollbar(card, orient="horizontal")
+        xsb.pack(side="bottom", fill="x")
+
+        tree = ttk.Treeview(card, columns=columns, show="headings",
+                            yscrollcommand=ysb.set, xscrollcommand=xsb.set,
+                            selectmode="browse")
+        tree.pack(fill="both", expand=True)
+        ysb.config(command=tree.yview)
+        xsb.config(command=tree.xview)
+
+        for col in columns:
+            tree.heading(col, text=col.replace("_", " ").title())
+            tree.column(col, width=130, anchor="w", minwidth=70, stretch=True)
+
+        for row in rows:
+            tree.insert("", "end", values=row)
+
+        tree.bind("<<TreeviewSelect>>",
+                  lambda e, t=tree, c=columns: self._on_select(t, c))
+
+    def _on_select(self, tree, columns):
+        sel = tree.selection()
+        if not sel:
+            return
+        values = tree.item(sel[0], "values")
+        self._show_row_detail(columns, values)
+
+
+class LoginView(tk.Frame):
+    _NAVY  = "#0F172A"
+    _NAVY2 = "#1E293B"
+    _PALE  = "#94A3B8"
+    _DIM   = "#BFDBFE"
+
+    def __init__(self, parent, on_login):
+        super().__init__(parent, bg=self._NAVY)
+        self.on_login = on_login
+        self.pack(fill="both", expand=True)
+        self._build_left()
+        self._build_right()
+
+    # ── left panel ───────────────────────────────────────────────────
+    def _build_left(self):
+        N, N2, P = self._NAVY, self._NAVY2, self._PALE
+        pnl = tk.Frame(self, bg=N, width=390)
+        pnl.pack(side="left", fill="y")
+        pnl.pack_propagate(False)
+
+        top = tk.Frame(pnl, bg=N, padx=44)
+        top.pack(fill="x", pady=(64, 0))
+        logo = tk.Frame(top, bg=ACCENT, width=52, height=52)
+        logo.pack(anchor="w")
+        logo.pack_propagate(False)
+        tk.Label(logo, text="🏢", font=("Segoe UI Emoji", 22), bg=ACCENT, fg="white").pack(expand=True)
+
+        tk.Label(pnl, text="PAMS", font=("Segoe UI", 27, "bold"),
+                 bg=N, fg="white").pack(anchor="w", padx=44, pady=(18, 2))
+        tk.Label(pnl, text="Paragon Apartment\nManagement System",
+                 font=("Segoe UI", 10), bg=N, fg=P, justify="left").pack(anchor="w", padx=44)
+
+        tk.Frame(pnl, bg=N2, height=1).pack(fill="x", padx=44, pady=30)
+
+        features = [
+            ("🏠", "Apartment Grid Overview",  "All units across every location"),
+            ("📋", "Lease & Tenant Records",    "Full lifecycle management"),
+            ("💳", "Payment & Billing",          "Invoices, overdue and reports"),
+            ("🔧", "Maintenance & Complaints",  "Log, assign and resolve issues"),
+        ]
+        for icon, title, sub in features:
+            row = tk.Frame(pnl, bg=N, padx=44)
+            row.pack(fill="x", pady=10)
+            ib = tk.Frame(row, bg=N2, width=40, height=40)
+            ib.pack(side="left", padx=(0, 14))
+            ib.pack_propagate(False)
+            tk.Label(ib, text=icon, font=("Segoe UI Emoji", 16),
+                     bg=N2, fg="white").pack(expand=True)
+            col = tk.Frame(row, bg=N)
+            col.pack(side="left", fill="x", expand=True)
+            tk.Label(col, text=title, font=("Segoe UI", 10, "bold"),
+                     bg=N, fg="white").pack(anchor="w")
+            tk.Label(col, text=sub, font=("Segoe UI", 9),
+                     bg=N, fg=P).pack(anchor="w", pady=(1, 0))
+
+        tk.Frame(pnl, bg=N).pack(fill="both", expand=True)
+        bar = tk.Frame(pnl, bg=ACCENT, padx=44, pady=22)
+        bar.pack(fill="x")
+        tk.Label(bar, text="Trusted by property managers",
+                 font=("Segoe UI", 10, "bold"), bg=ACCENT, fg="white").pack(anchor="w")
+        tk.Label(bar, text="Bristol  ·  Cardiff  ·  London  ·  Manchester",
+                 font=("Segoe UI", 9), bg=ACCENT, fg=self._DIM).pack(anchor="w", pady=(4, 0))
+
+    # ── right panel ──────────────────────────────────────────────────
+    def _build_right(self):
+        right = tk.Frame(self, bg="#F1F5F9")
         right.pack(side="left", fill="both", expand=True)
-        form = tk.Frame(right, bg=PANEL_BG, padx=48, pady=48,
-                       highlightbackground="#C7CDD6", highlightthickness=1)
-        form.place(relx=0.5, rely=0.5, anchor="center")
 
-        tk.Label(form, text="Welcome back", font=FONT_HEAD, bg=PANEL_BG, fg=TEXT).pack(anchor="w")
-        tk.Label(form, text="Sign in to continue", font=FONT_BODY, bg=PANEL_BG, fg=TEXT_DIM).pack(anchor="w", pady=(4,24))
+        # Wrapper gives the card a solid blue top edge
+        wrap = tk.Frame(right, bg=ACCENT,
+                        highlightbackground="#CBD5E1", highlightthickness=1)
+        wrap.place(relx=0.5, rely=0.5, anchor="center")
+        tk.Frame(wrap, bg=ACCENT, height=5).pack(fill="x")
+
+        card = tk.Frame(wrap, bg=PANEL_BG, padx=52, pady=44)
+        card.pack()
+
+        tk.Label(card, text="Welcome back",
+                 font=FONT_HEAD, bg=PANEL_BG, fg=TEXT).pack(anchor="w")
+        tk.Label(card, text="Sign in to your PAMS account",
+                 font=FONT_BODY, bg=PANEL_BG, fg=TEXT_DIM).pack(anchor="w", pady=(4, 28))
 
         def field(lbl, show=None):
-            tk.Label(form, text=lbl, font=FONT_SMALL, bg=PANEL_BG, fg=TEXT_DIM).pack(anchor="w")
+            tk.Label(card, text=lbl, font=("Segoe UI", 9, "bold"),
+                     bg=PANEL_BG, fg=TEXT_DIM).pack(anchor="w")
             var = tk.StringVar()
             kw = {"show": show} if show else {}
-            e = tk.Entry(form, textvariable=var, font=FONT_BODY, bg=PANEL_BG, fg=TEXT,
-                         insertbackground=TEXT, relief="flat", bd=0, width=32,
-                         highlightthickness=1, highlightcolor=ACCENT, highlightbackground=BORDER, **kw)
-            e.pack(fill="x", pady=(4,14), ipady=8, padx=2)
+            e = tk.Entry(card, textvariable=var, font=FONT_BODY, bg="#F8FAFC", fg=TEXT,
+                         insertbackground=TEXT, relief="flat", bd=0, width=30,
+                         highlightthickness=1, highlightcolor=ACCENT,
+                         highlightbackground="#CBD5E1", **kw)
+            e.pack(fill="x", pady=(6, 18), ipady=10, padx=2)
             return var, e
 
-        self.v_user, self.e_user = field("Username")
-        self.v_pass, self.e_pass = field("Password", show="●")
-        self.err = tk.Label(form, text="", font=FONT_SMALL, bg=PANEL_BG, fg=DANGER)
-        self.err.pack(anchor="w", pady=(0,8))
-        mkbtn(form, "Sign In →", self._go, width=30).pack(fill="x", ipady=4)
-        tk.Label(form, text="Demo: frontdesk1 / password123", font=FONT_SMALL,
-                 bg=PANEL_BG, fg=TEXT_MUTED).pack(pady=(14,0))
+        self.v_user, self.e_user = field("USERNAME")
+        self.v_pass, self.e_pass = field("PASSWORD", show="●")
+
+        self.err = tk.Label(card, text="", font=FONT_SMALL, bg=PANEL_BG, fg=DANGER)
+        self.err.pack(anchor="w", pady=(0, 8))
+
+        btn = tk.Button(card, text="Sign In  →", command=self._go,
+                        bg=ACCENT, fg="white", font=("Segoe UI", 11, "bold"),
+                        relief="flat", bd=0, cursor="hand2",
+                        padx=16, pady=13,
+                        activebackground="#1D4ED8", activeforeground="white", width=28)
+        btn.pack(fill="x")
+        btn.bind("<Enter>", lambda e: btn.config(bg="#1D4ED8"))
+        btn.bind("<Leave>", lambda e: btn.config(bg=ACCENT))
+
+        tk.Label(card, text="Demo  ·  frontdesk1 / password123",
+                 font=("Segoe UI", 8), bg=PANEL_BG, fg=TEXT_MUTED).pack(pady=(16, 0))
 
         self.e_user.bind("<Return>", lambda e: self.e_pass.focus())
         self.e_pass.bind("<Return>", lambda e: self._go())
@@ -260,36 +541,89 @@ class LoginView(tk.Frame):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  APP SHELL
+#  BASE APP SHELL  (abstract)
 # ══════════════════════════════════════════════════════════════════════════════
-class AppShell(tk.Frame):
+
+class BaseAppShell(tk.Frame, ABC):
+    """
+    Abstract base class for all role-specific application shells.
+
+    Enforces a consistent layout: sidebar (role-specific) + content area.
+    Concrete subclasses must implement:
+      - _build_sidebar() : construct the navigation panel for their role
+      - _go(dest)        : map destination string to the correct view class
+
+    Shared behaviour provided here:
+      - _nav()    : highlight the active button and delegate to _go()
+      - _clear()  : wipe the content area before loading a new view
+      - _logout() : confirm and return to the login screen
+    """
+
     def __init__(self, parent, staff, db):
         super().__init__(parent, bg=DARK_BG)
         self.staff = staff
         self.db = db
+        self._nbtn: dict = {}
+        self._nbar: dict = {}
         self.pack(fill="both", expand=True)
         self._build_sidebar()
         self.content = tk.Frame(self, bg=DARK_BG)
         self.content.pack(side="left", fill="both", expand=True)
-        self._go_commune()
+
+    @abstractmethod
+    def _build_sidebar(self):
+        """Build the role-specific navigation sidebar."""
+
+    @abstractmethod
+    def _go(self, dest: str):
+        """Load the view that corresponds to the given destination key."""
+
+    def _nav(self, key: str, dest: str):
+        """Highlight the active nav button then navigate to dest."""
+        for k, b in self._nbtn.items():
+            b.config(bg=PANEL_BG, fg=TEXT_DIM)
+            self._nbar[k].config(bg=PANEL_BG)
+        self._nbtn[key].config(bg=HOVER_BG, fg=TEXT)
+        self._nbar[key].config(bg=ACCENT)
+        self._go(dest)
+
+    def _clear(self):
+        """Remove all widgets from the content area."""
+        for w in self.content.winfo_children():
+            w.destroy()
+
+    def _logout(self):
+        if messagebox.askyesno("Sign Out", "Sign out of PAMS?", parent=self):
+            self.destroy()
+            self.master.show_login()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  APP SHELL  — Front-Desk / default role
+# ══════════════════════════════════════════════════════════════════════════════
+
+class AppShell(BaseAppShell):
+    """Concrete shell for Front-Desk staff: Apartments + Create Lease."""
+
+    def __init__(self, parent, staff, db):
+        super().__init__(parent, staff, db)
+        self._nav("commune", "commune")
 
     def _build_sidebar(self):
         sb = tk.Frame(self, bg=PANEL_BG, width=210,
-                         highlightbackground=BORDER, highlightthickness=1)
+                      highlightbackground=BORDER, highlightthickness=1)
         sb.pack(side="left", fill="y")
         sb.pack_propagate(False)
-        tk.Label(sb, text="🏢  PAMS", font=("Segoe UI",12,"bold"),
-                 bg=PANEL_BG, fg=TEXT).pack(padx=20, pady=(22,10), anchor="w")
+        tk.Label(sb, text="🏢  PAMS", font=("Segoe UI", 12, "bold"),
+                 bg=PANEL_BG, fg=TEXT).pack(padx=20, pady=(22, 10), anchor="w")
         uc = tk.Frame(sb, bg=HOVER_BG, padx=14, pady=10)
-        uc.pack(fill="x", padx=10, pady=(0,10))
+        uc.pack(fill="x", padx=10, pady=(0, 10))
         tk.Label(uc, text=self.staff.full_name, font=FONT_SUB, bg=HOVER_BG, fg=TEXT).pack(anchor="w")
-        badge(uc, self.staff.role, ACCENT).pack(anchor="w", pady=(4,0))
+        badge(uc, self.staff.role, ACCENT).pack(anchor="w", pady=(4, 0))
 
-        self._nbtn = {}
-        self._nbar = {}
-        for key, label, cmd in [
-            ("commune",      "🏠  Apartments",  self._go_commune),
-            ("create_lease", "➕  Create Lease", self._go_create),
+        for key, label, dest in [
+            ("commune",      "🏠  Apartments",   "commune"),
+            ("create_lease", "➕  Create Lease",  "create_lease"),
         ]:
             row = tk.Frame(sb, bg=PANEL_BG)
             row.pack(fill="x")
@@ -298,7 +632,7 @@ class AppShell(tk.Frame):
             b = tk.Button(row, text=label, font=FONT_BODY, bg=PANEL_BG, fg=TEXT_DIM,
                           relief="flat", bd=0, anchor="w", padx=15, pady=11,
                           cursor="hand2", activebackground=HOVER_BG, activeforeground=TEXT,
-                          command=lambda c=cmd, k=key: self._nav(k, c))
+                          command=lambda d=dest, k=key: self._nav(k, d))
             b.pack(side="left", fill="x", expand=True)
             self._nbtn[key] = b
             self._nbar[key] = bar
@@ -313,31 +647,13 @@ class AppShell(tk.Frame):
         _so.bind("<Enter>", lambda e: _so.config(bg="#FEE2E2"))
         _so.bind("<Leave>", lambda e: _so.config(bg=PANEL_BG))
 
-    def _nav(self, key, cmd):
-        for k, b in self._nbtn.items():
-            b.config(bg=PANEL_BG, fg=TEXT_DIM)
-            self._nbar[k].config(bg=PANEL_BG)
-        self._nbtn[key].config(bg=HOVER_BG, fg=TEXT)
-        self._nbar[key].config(bg=ACCENT)
-        cmd()
-
-    def _clear(self):
-        for w in self.content.winfo_children(): w.destroy()
-
-    def _go_commune(self):
-        self._nav("commune", lambda: None)
+    def _go(self, dest: str):
         self._clear()
-        CommuneView(self.content, self.staff, self.db)
-
-    def _go_create(self):
-        self._nav("create_lease", lambda: None)
-        self._clear()
-        CreateLeaseWizard(self.content, self.staff, self.db, on_complete=self._go_commune)
-
-    def _logout(self):
-        if messagebox.askyesno("Sign Out", "Sign out?"):
-            self.destroy()
-            self.master.show_login()
+        if dest == "commune":
+            CommuneView(self.content, self.staff, self.db)
+        elif dest == "create_lease":
+            CreateLeaseWizard(self.content, self.staff, self.db,
+                              on_complete=lambda: self._nav("commune", "commune"))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -487,9 +803,11 @@ class CommuneView(tk.Frame):
         tk.Label(foot, text=f"Floor {apt.floor}", font=FONT_SMALL, bg=CARD_BG, fg=TEXT_MUTED).pack(side="right")
 
         def click(e=None, a=apt): ApartmentDetailWindow(self, a, self.staff, self.db)
-        for w in [outer, body, head, foot, pills]:
+        def _bind(w):
             try: w.bind("<Button-1>", click)
             except Exception: pass
+            for child in w.winfo_children(): _bind(child)
+        _bind(outer)
 
         outer.bind("<Enter>", lambda e: outer.config(highlightbackground=ACCENT, highlightthickness=2))
         outer.bind("<Leave>", lambda e: outer.config(highlightbackground=BORDER, highlightthickness=1))
@@ -602,6 +920,12 @@ class ApartmentDetailWindow(tk.Toplevel):
                       lambda: ComplaintDialog(self, l, self.staff, self.db), color=WARNING, small=True).pack(side="left", padx=(0,8))
                 mkbtn(ar, "Send Payment Request",
                       lambda: PaymentRequestDialog(self, l, self.staff, self.db), small=True).pack(side="left")
+                if not l.early_termination_requested:
+                    mkbtn(ar, "⚠  Early Termination",
+                          lambda lease=l: EarlyTerminationDialog(
+                              self, lease, self.db, on_save=self.destroy
+                          ),
+                          color=DANGER, small=True).pack(side="right")
 
             tenant = self.db.get_tenant_by_id(l.tenant_id)
             if tenant:
@@ -840,21 +1164,43 @@ class CreateLeaseWizard(tk.Frame):
         hdr.pack(fill="x")
         tk.Label(hdr, text="Create New Lease", font=FONT_HEAD, bg=DARK_BG, fg=TEXT).pack(anchor="w")
         self.step_row = tk.Frame(hdr, bg=DARK_BG)
-        self.step_row.pack(anchor="w", pady=(8,0))
-        self._slbls = []
-        for i, s in enumerate(["1. Tenant Info", "2. Select Apartment", "3. Confirm & Send"]):
-            lbl = tk.Label(self.step_row, text=s, font=FONT_SMALL, bg=DARK_BG,
-                           fg=ACCENT if i==0 else TEXT_MUTED, padx=10, pady=4)
-            lbl.pack(side="left")
+        self.step_row.pack(anchor="w", pady=(14,0))
+        self._step_widgets = []
+        self._step_connectors = []
+        for i, s in enumerate(["Tenant Info", "Select Apartment", "Confirm & Send"]):
+            col = tk.Frame(self.step_row, bg=DARK_BG)
+            col.pack(side="left")
+            circ = tk.Canvas(col, width=28, height=28, bg=DARK_BG, highlightthickness=0)
+            circ.pack()
+            lbl = tk.Label(col, text=s, font=FONT_SMALL, bg=DARK_BG, fg=TEXT_MUTED)
+            lbl.pack(pady=(4,0))
+            self._step_widgets.append((circ, lbl))
             if i < 2:
-                tk.Label(self.step_row, text=" → ", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_MUTED).pack(side="left")
-            self._slbls.append(lbl)
+                gap = tk.Frame(self.step_row, bg=DARK_BG)
+                gap.pack(side="left", padx=6)
+                conn = tk.Frame(gap, bg=BORDER, height=2, width=52)
+                conn.pack(pady=(0,20))
+                self._step_connectors.append(conn)
         self.body = tk.Frame(self, bg=DARK_BG)
         self.body.pack(fill="both", expand=True, padx=28, pady=4)
 
     def _update_steps(self):
-        for i, lbl in enumerate(self._slbls):
-            lbl.config(fg=SUCCESS if i<self.step else ACCENT if i==self.step else TEXT_MUTED)
+        for i, (circ, lbl) in enumerate(self._step_widgets):
+            circ.delete("all")
+            if i < self.step:
+                circ.create_oval(2, 2, 26, 26, fill=SUCCESS, outline="")
+                circ.create_text(14, 14, text="✓", fill="white", font=("Segoe UI", 10, "bold"))
+                lbl.config(fg=SUCCESS)
+            elif i == self.step:
+                circ.create_oval(2, 2, 26, 26, fill=ACCENT, outline="")
+                circ.create_text(14, 14, text=str(i+1), fill="white", font=("Segoe UI", 10, "bold"))
+                lbl.config(fg=ACCENT)
+            else:
+                circ.create_oval(2, 2, 26, 26, fill="", outline=BORDER, width=2)
+                circ.create_text(14, 14, text=str(i+1), fill=TEXT_MUTED, font=("Segoe UI", 9))
+                lbl.config(fg=TEXT_MUTED)
+        for i, conn in enumerate(self._step_connectors):
+            conn.config(bg=SUCCESS if self.step > i else BORDER)
 
     def _show(self, s):
         self.step = s
@@ -872,8 +1218,10 @@ class CreateLeaseWizard(tk.Frame):
                  ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0,16))
 
         def slbl(row, txt):
-            tk.Label(inner, text=txt, font=FONT_SUB, bg=CARD_BG, fg=ACCENT
-                     ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(16,0), padx=6)
+            wrap = tk.Frame(inner, bg=CARD_BG)
+            wrap.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(20,6), padx=6)
+            tk.Frame(wrap, bg=ACCENT, width=3).pack(side="left", fill="y", padx=(0,8))
+            tk.Label(wrap, text=txt, font=FONT_SUB, bg=CARD_BG, fg=TEXT).pack(side="left")
 
         slbl(1, "Personal Details")
         td = self.tenant_data
@@ -915,6 +1263,16 @@ class CreateLeaseWizard(tk.Frame):
                                self.ln.get().strip(), self.ph.get().strip(), self.em.get().strip())
         if not all([ni, fn, ln, ph, em]):
             messagebox.showwarning("Missing Fields", "Please fill in all required (*) fields.")
+            return
+        ni = ni.upper()
+        if not re.fullmatch(r"[A-Z]{2}\d{6}[A-Z]", ni):
+            messagebox.showwarning("Invalid NI Number",
+                "NI Number must be 2 letters, 6 digits, then 1 letter (e.g. AB123456C).")
+            return
+        ph_digits = re.sub(r"[\s\-]", "", ph)
+        if not re.fullmatch(r"(\+44|0)\d{9,10}", ph_digits):
+            messagebox.showwarning("Invalid Phone Number",
+                "Phone must be a valid UK number (e.g. 07700 123456 or +44 7700 123456).")
             return
         self.tenant_data = {
             "ni_number": ni, "first_name": fn, "last_name": ln,
@@ -961,6 +1319,8 @@ class CreateLeaseWizard(tk.Frame):
         outer.pack(fill="both", expand=True)
 
         self._sel_var = tk.IntVar(value=-1)
+        self._apt_cards = {}
+        self._apt_indicators = {}
         self.selected_apt = None
         if not apts:
             tk.Label(apt_inner, text="No available apartments at your location.",
@@ -979,12 +1339,14 @@ class CreateLeaseWizard(tk.Frame):
                         highlightbackground=BORDER, highlightthickness=1)
         card.pack(fill="x", pady=(0,6))
         tk.Frame(card, bg=color, height=3).pack(fill="x")
-        body = tk.Frame(card, bg=CARD_BG, padx=16, pady=10)
+        body = tk.Frame(card, bg=CARD_BG, padx=16, pady=12)
         body.pack(fill="both")
 
-        rb = tk.Radiobutton(body, variable=self._sel_var, value=apt.id, bg=CARD_BG,
-                            activebackground=CARD_BG, command=lambda a=apt: setattr(self, "selected_apt", a))
-        rb.pack(side="left", padx=(0,10))
+        ind = tk.Canvas(body, width=22, height=22, bg=CARD_BG, highlightthickness=0)
+        ind.create_oval(2, 2, 20, 20, outline=BORDER, width=2)
+        ind.pack(side="left", padx=(0,14))
+        self._apt_indicators[apt.id] = ind
+        self._apt_cards[apt.id] = card
 
         info = tk.Frame(body, bg=CARD_BG)
         info.pack(side="left", fill="x", expand=True)
@@ -999,12 +1361,33 @@ class CreateLeaseWizard(tk.Frame):
         tk.Label(body, text=f"£{apt.monthly_rent:,.0f}/mo", font=("Segoe UI",13,"bold"),
                  bg=CARD_BG, fg=ACCENT).pack(side="right")
 
-        def click(e=None, a=apt): self._sel_var.set(a.id); self.selected_apt = a
-        for w in [card, body, info, top]:
+        def click(e=None, a=apt):
+            self._sel_var.set(a.id); self.selected_apt = a
+            self._refresh_apt_selection()
+        def _bind(w):
             try: w.bind("<Button-1>", click)
             except Exception: pass
-        card.bind("<Enter>", lambda e: card.config(highlightbackground=ACCENT, highlightthickness=2))
-        card.bind("<Leave>", lambda e: card.config(highlightbackground=BORDER, highlightthickness=1))
+            for child in w.winfo_children(): _bind(child)
+        _bind(card)
+        card.bind("<Enter>", lambda e, a=apt: card.config(
+            highlightbackground=ACCENT if self._sel_var.get()==a.id else "#93C5FD", highlightthickness=2))
+        card.bind("<Leave>", lambda e, a=apt: card.config(
+            highlightbackground=ACCENT if self._sel_var.get()==a.id else BORDER,
+            highlightthickness=2 if self._sel_var.get()==a.id else 1))
+
+    def _refresh_apt_selection(self):
+        sel = self._sel_var.get()
+        for apt_id, card in self._apt_cards.items():
+            selected = (apt_id == sel)
+            card.config(highlightbackground=ACCENT if selected else BORDER,
+                        highlightthickness=2 if selected else 1)
+        for apt_id, ind in self._apt_indicators.items():
+            ind.delete("all")
+            if apt_id == sel:
+                ind.create_oval(2, 2, 20, 20, fill=ACCENT, outline="")
+                ind.create_text(11, 11, text="✓", fill="white", font=("Segoe UI", 9, "bold"))
+            else:
+                ind.create_oval(2, 2, 20, 20, outline=BORDER, width=2)
 
     def _s2_next(self):
         if not self.selected_apt or self._sel_var.get() < 0:
@@ -1024,8 +1407,11 @@ class CreateLeaseWizard(tk.Frame):
         outer.pack(fill="both", expand=True)
         inner.config(padx=8)
 
-        sc_ = tk.Frame(inner, bg=CARD_BG, padx=28, pady=20)
-        sc_.pack(fill="x", pady=(0,12))
+        sc_wrap = tk.Frame(inner, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1)
+        sc_wrap.pack(fill="x", pady=(0,12))
+        tk.Frame(sc_wrap, bg=SUCCESS, height=4).pack(fill="x")
+        sc_ = tk.Frame(sc_wrap, bg=CARD_BG, padx=28, pady=20)
+        sc_.pack(fill="both")
         tk.Label(sc_, text="Lease Summary", font=FONT_TITLE, bg=CARD_BG, fg=TEXT).pack(anchor="w", pady=(0,12))
         info_grid(sc_, [
             ("Tenant",       f"{td['first_name']} {td['last_name']}"),
@@ -1037,8 +1423,11 @@ class CreateLeaseWizard(tk.Frame):
             ("Deposit",      f"£{apt.monthly_rent*2:,.2f}  (2 months)"),
         ], cols=3, bg=CARD_BG)
 
-        pc = tk.Frame(inner, bg=CARD_BG, padx=28, pady=16)
-        pc.pack(fill="x", pady=(0,12))
+        pc_wrap = tk.Frame(inner, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1)
+        pc_wrap.pack(fill="x", pady=(0,12))
+        tk.Frame(pc_wrap, bg=ACCENT, height=4).pack(fill="x")
+        pc = tk.Frame(pc_wrap, bg=CARD_BG, padx=28, pady=16)
+        pc.pack(fill="both")
         tk.Label(pc, text="Initial Payment Request", font=FONT_TITLE, bg=CARD_BG, fg=TEXT).pack(anchor="w", pady=(0,10))
         pr = tk.Frame(pc, bg=CARD_BG)
         pr.pack(fill="x")
@@ -1111,24 +1500,24 @@ class EditTenantDialog(tk.Toplevel):
         outer.pack(fill="both", expand=True)
         inner.config(padx=28, pady=20)
         t = self.tenant
-        self.fn  = entry_var(inner, "First Name *",   0, 0, t.first_name)
-        self.ln  = entry_var(inner, "Last Name *",    0, 1, t.last_name)
-        self.dob = entry_var(inner, "Date of Birth",  0, 2, t.date_of_birth or "")
-        self.ph  = entry_var(inner, "Phone *",        2, 0, t.phone)
-        self.em  = entry_var(inner, "Email *",        2, 1, t.email)
-        self.oc  = entry_var(inner, "Occupation",     2, 2, t.occupation)
+        self.fn  = entry_var(inner, "First Name *",   0, 0, t.first_name,           placeholder="e.g. John")
+        self.ln  = entry_var(inner, "Last Name *",    0, 1, t.last_name,            placeholder="e.g. Smith")
+        self.dob = entry_var(inner, "Date of Birth",  0, 2, t.date_of_birth or "",  placeholder="YYYY-MM-DD")
+        self.ph  = entry_var(inner, "Phone *",        2, 0, t.phone,                placeholder="e.g. 07700 123456")
+        self.em  = entry_var(inner, "Email *",        2, 1, t.email,                placeholder="e.g. john@email.com")
+        self.oc  = entry_var(inner, "Occupation",     2, 2, t.occupation,           placeholder="e.g. Engineer")
         tk.Label(inner, text="Emergency Contact", font=FONT_SUB, bg=CARD_BG, fg=ACCENT
                  ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(16,0), padx=6)
-        self.ecn = entry_var(inner, "Name",  5, 0, t.emergency_contact_name)
-        self.ecp = entry_var(inner, "Phone", 5, 1, t.emergency_contact_phone)
+        self.ecn = entry_var(inner, "Name",  5, 0, t.emergency_contact_name,  placeholder="e.g. Jane Smith")
+        self.ecp = entry_var(inner, "Phone", 5, 1, t.emergency_contact_phone, placeholder="e.g. 07700 654321")
         tk.Label(inner, text="References", font=FONT_SUB, bg=CARD_BG, fg=ACCENT
                  ).grid(row=7, column=0, columnspan=3, sticky="w", pady=(16,0), padx=6)
-        self.r1n = entry_var(inner, "Ref 1 Name",  8, 0, t.reference1_name)
-        self.r1p = entry_var(inner, "Ref 1 Phone", 8, 1, t.reference1_phone)
-        self.r1e = entry_var(inner, "Ref 1 Email", 8, 2, t.reference1_email)
-        self.r2n = entry_var(inner, "Ref 2 Name",  10, 0, t.reference2_name)
-        self.r2p = entry_var(inner, "Ref 2 Phone", 10, 1, t.reference2_phone)
-        self.r2e = entry_var(inner, "Ref 2 Email", 10, 2, t.reference2_email)
+        self.r1n = entry_var(inner, "Ref 1 Name",  8, 0, t.reference1_name,  placeholder="e.g. Dr. Brown")
+        self.r1p = entry_var(inner, "Ref 1 Phone", 8, 1, t.reference1_phone, placeholder="e.g. 07700 111222")
+        self.r1e = entry_var(inner, "Ref 1 Email", 8, 2, t.reference1_email, placeholder="e.g. ref@email.com")
+        self.r2n = entry_var(inner, "Ref 2 Name",  10, 0, t.reference2_name,  placeholder="e.g. Dr. Jones")
+        self.r2p = entry_var(inner, "Ref 2 Phone", 10, 1, t.reference2_phone, placeholder="e.g. 07700 333444")
+        self.r2e = entry_var(inner, "Ref 2 Email", 10, 2, t.reference2_email, placeholder="e.g. ref2@email.com")
         tk.Label(inner, text="Notes", font=FONT_SUB, bg=CARD_BG, fg=ACCENT
                  ).grid(row=12, column=0, columnspan=3, sticky="w", pady=(16,0), padx=6)
         self.nt = tk.Text(inner, font=FONT_BODY, bg=PANEL_BG, fg=TEXT, insertbackground=TEXT,
@@ -1265,4 +1654,115 @@ class PaymentRequestDialog(tk.Toplevel):
                     notes=self.notes.get("1.0","end-1c").strip()))
         messagebox.showinfo("Sent ✓", f"Payment request (£{amount:,.2f}) sent to {self.lease.tenant_email}.\nDue: {due}", parent=self)
         if self.on_save: self.on_save()
+        self.destroy()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  EARLY TERMINATION DIALOG
+# ══════════════════════════════════════════════════════════════════════════════
+class EarlyTerminationDialog(tk.Toplevel):
+    def __init__(self, parent, lease: Lease, db, on_save=None):
+        super().__init__(parent)
+        self.lease = lease
+        self.db = db
+        self.on_save = on_save
+        self.title("Request Early Termination")
+        self.geometry("500x420")
+        self.configure(bg=DARK_BG)
+        self.resizable(False, False)
+        self.grab_set()
+        self._build()
+
+    def _build(self):
+        # Header
+        hdr = tk.Frame(self, bg=DANGER, padx=24, pady=14)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="⚠  Request Early Termination", font=FONT_TITLE,
+                 bg=DANGER, fg="white").pack(anchor="w")
+        tk.Label(hdr, text=f"{self.lease.tenant_name}  •  Unit {self.lease.apartment_unit}",
+                 font=FONT_SMALL, bg=DANGER, fg="#FECACA").pack(anchor="w")
+
+        body = tk.Frame(self, bg=CARD_BG, padx=28, pady=20)
+        body.pack(fill="both", expand=True)
+
+        # Lease summary
+        penalty = self.lease.early_termination_penalty()
+        earliest_exit = date.today() + timedelta(days=self.lease.REQUIRED_NOTICE_DAYS)
+
+        info_grid(body, [
+            ("Original End Date", self.lease.end_date or "—"),
+            ("Monthly Rent",      f"£{self.lease.monthly_rent:,.2f}"),
+            ("Notice Period",     f"{self.lease.REQUIRED_NOTICE_DAYS} days"),
+            ("Penalty (5%)",      f"£{penalty:,.2f}"),
+        ], cols=2)
+
+        # Policy note
+        note = tk.Frame(body, bg="#FEF3C7", padx=14, pady=10)
+        note.pack(fill="x", pady=(12, 16))
+        tk.Label(note, text="Policy: tenant must give 30 days' notice and pay a penalty of\n"
+                             f"5% of monthly rent (£{penalty:,.2f}) upon early exit.",
+                 font=FONT_SMALL, bg="#FEF3C7", fg=WARNING, justify="left").pack(anchor="w")
+
+        # Notice date entry
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=1)
+        self.v_notice = entry_var(body, "Notice Given Date *", 3, 0,
+                                  str(date.today()), placeholder="YYYY-MM-DD")
+        self.v_notice.trace_add("write", self._update_exit_date)
+
+        # Earliest exit date (auto-computed, read-only display)
+        tk.Label(body, text="Earliest Exit Date", font=FONT_SMALL,
+                 bg=CARD_BG, fg=TEXT_DIM).grid(row=3, column=1, sticky="w", padx=6, pady=(8, 2))
+        self._exit_var = tk.StringVar(value=str(earliest_exit))
+        exit_lbl = tk.Label(body, textvariable=self._exit_var,
+                             font=FONT_SUB, bg=CARD_BG, fg=DANGER)
+        exit_lbl.grid(row=4, column=1, sticky="w", padx=6)
+
+        # Buttons
+        nav = tk.Frame(body, bg=CARD_BG, pady=18)
+        nav.grid(row=5, column=0, columnspan=2, sticky="ew")
+        mkbtn(nav, "Cancel", self.destroy, color=TEXT_MUTED).pack(side="left")
+        mkbtn(nav, "Confirm Termination", self._confirm, color=DANGER).pack(side="right")
+
+    def _update_exit_date(self, *_):
+        try:
+            nd = date.fromisoformat(self.v_notice.get().strip())
+            self._exit_var.set(str(nd + timedelta(days=self.lease.REQUIRED_NOTICE_DAYS)))
+        except ValueError:
+            self._exit_var.set("—")
+
+    def _confirm(self):
+        notice_str = self.v_notice.get().strip()
+        try:
+            notice_date = date.fromisoformat(notice_str)
+        except ValueError:
+            messagebox.showwarning("Invalid Date",
+                                   "Enter notice date as YYYY-MM-DD.", parent=self)
+            return
+        termination_date = notice_date + timedelta(days=self.lease.REQUIRED_NOTICE_DAYS)
+        penalty = self.lease.early_termination_penalty()
+        confirm = messagebox.askyesno(
+            "Confirm Early Termination",
+            f"This will terminate the lease for {self.lease.tenant_name}.\n\n"
+            f"  Notice date:      {notice_date}\n"
+            f"  Termination date: {termination_date}\n"
+            f"  Penalty owed:     £{penalty:,.2f}\n\n"
+            "Proceed?",
+            parent=self,
+        )
+        if not confirm:
+            return
+        self.db.request_early_termination(
+            self.lease.id, self.lease.apartment_id,
+            str(notice_date), str(termination_date),
+        )
+        messagebox.showinfo(
+            "Termination Recorded",
+            f"Early termination recorded.\n"
+            f"Lease ends: {termination_date}\n"
+            f"Penalty due: £{penalty:,.2f}",
+            parent=self,
+        )
+        if self.on_save:
+            self.on_save()
         self.destroy()

@@ -4,7 +4,7 @@ Tabs: Payments | Invoices | Late Payments | Reports
 Shares the commune apartment grid from views.py (read-only for finance).
 """
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from datetime import date
 from typing import Optional, List, Callable
 
@@ -15,7 +15,7 @@ from .views import (
     FONT_HEAD, FONT_TITLE, FONT_SUB, FONT_BODY, FONT_SMALL,
     sc, badge, mkbtn, entry_var, combo_var, scrollable, sec_hdr, info_grid,
     CommuneView,           # read-only commune grid
-    export_bar,
+    export_bar, BaseAppShell,
 )
 
 
@@ -23,18 +23,12 @@ from .views import (
 #  FINANCE APP SHELL
 # ═══════════════════════════════════════════════════════════════════
 
-class FinanceAppShell(tk.Frame):
+class FinanceAppShell(BaseAppShell):
     """Top-level shell for Finance Manager — sidebar + content area."""
 
     def __init__(self, parent, staff, db):
-        super().__init__(parent, bg=DARK_BG)
-        self.staff = staff
-        self.db = db
-        self.pack(fill="both", expand=True)
-        self._build_sidebar()
-        self.content = tk.Frame(self, bg=DARK_BG)
-        self.content.pack(side="left", fill="both", expand=True)
-        self._go("commune")
+        super().__init__(parent, staff, db)
+        self._nav("commune", "commune")
 
     def _build_sidebar(self):
         sb = tk.Frame(self, bg=PANEL_BG, width=218,
@@ -85,22 +79,9 @@ class FinanceAppShell(tk.Frame):
         _so.bind("<Enter>", lambda e: _so.config(bg="#FEE2E2"))
         _so.bind("<Leave>", lambda e: _so.config(bg=PANEL_BG))
 
-    def _nav(self, key, dest):
-        for k, b in self._nbtn.items():
-            b.config(bg=PANEL_BG, fg=TEXT_DIM)
-            self._nbar[k].config(bg=PANEL_BG)
-        self._nbtn[key].config(bg=HOVER_BG, fg=TEXT)
-        self._nbar[key].config(bg=ACCENT)
-        self._go(dest)
-
-    def _clear(self):
-        for w in self.content.winfo_children():
-            w.destroy()
-
     def _go(self, dest):
         self._clear()
         if dest == "commune":
-            self._nbtn["commune"].config(bg=HOVER_BG, fg=TEXT)
             CommuneView(self.content, self.staff, self.db)
         elif dest == "payments":
             PaymentsView(self.content, self.staff, self.db)
@@ -110,11 +91,6 @@ class FinanceAppShell(tk.Frame):
             LatePaymentsView(self.content, self.staff, self.db)
         elif dest == "reports":
             ReportsView(self.content, self.staff, self.db)
-
-    def _logout(self):
-        if messagebox.askyesno("Sign Out", "Sign out?"):
-            self.destroy()
-            self.master.show_login()
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -177,14 +153,21 @@ class PaymentsView(tk.Frame):
         fbar = tk.Frame(self, bg=DARK_BG)
         fbar.pack(fill="x", padx=28, pady=(0, 10))
 
-        tk.Label(fbar, text="Status:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left")
+        tk.Label(fbar, text="Status:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left", padx=(0,4))
         self._status_f = tk.StringVar(value="All")
-        for s, c in [("All", TEXT_DIM), ("Paid", SUCCESS), ("Pending", WARNING),
-                     ("Overdue", DANGER)]:
-            tk.Radiobutton(fbar, text=s, variable=self._status_f, value=s,
-                           font=FONT_SMALL, bg=DARK_BG, fg=c, selectcolor=DARK_BG,
-                           activebackground=DARK_BG, relief="flat", bd=0, cursor="hand2",
-                           command=self._apply_filter).pack(side="left", padx=6)
+        self._status_btns = {}
+        def _set_status(v):
+            self._status_f.set(v)
+            for k, b in self._status_btns.items():
+                b.config(bg=ACCENT if k==v else PANEL_BG, fg="white" if k==v else TEXT_DIM)
+            self._apply_filter()
+        for s in ["All", "Paid", "Pending", "Overdue"]:
+            b = tk.Button(fbar, text=s, font=FONT_SMALL, bg=PANEL_BG, fg=TEXT_DIM,
+                          relief="flat", bd=0, cursor="hand2", padx=10, pady=4,
+                          command=lambda v=s: _set_status(v))
+            b.pack(side="left", padx=2)
+            self._status_btns[s] = b
+        self._status_btns["All"].config(bg=ACCENT, fg="white")
 
         tk.Label(fbar, text="  Search:", font=FONT_SMALL, bg=DARK_BG, fg=TEXT_DIM).pack(side="left", padx=(12, 4))
         self._sv = tk.StringVar()
@@ -345,23 +328,33 @@ class ReceiptWindow(tk.Toplevel):
     def __init__(self, parent, pay):
         super().__init__(parent)
         self.title(f"Receipt — {pay.reference_number}")
-        self.geometry("500x440")
+        self.geometry("500x580")
         self.configure(bg=DARK_BG)
         self.resizable(False, False)
+        self._pay = pay
         self._build(pay)
 
     def _build(self, pay):
-        # Receipt card
-        card = tk.Frame(self, bg=PANEL_BG, padx=36, pady=36,
+        # Button row packed first so it anchors to the bottom
+        btn_row = tk.Frame(self, bg=DARK_BG)
+        btn_row.pack(side="bottom", pady=(0, 16))
+        mkbtn(btn_row, "Download PDF", lambda: self._download_pdf(self._pay),
+              color=ACCENT, small=True).pack(side="left", padx=(0, 8))
+        mkbtn(btn_row, "Close", self.destroy, color=TEXT_MUTED, small=True).pack(side="left")
+
+        # Receipt card fills remaining space
+        card = tk.Frame(self, bg="white", padx=36, pady=24,
                        highlightbackground=BORDER, highlightthickness=1)
-        card.place(relx=0.5, rely=0.5, anchor="center")
+        card.pack(fill="both", expand=True, padx=24, pady=(20, 8))
 
-        tk.Label(card, text="🏢  PAMS", font=("Segoe UI", 14, "bold"),
+        tk.Label(card, text="PAMS", font=("Segoe UI", 16, "bold"),
                  bg="white", fg=TEXT).pack(anchor="w")
-        tk.Label(card, text="PAYMENT RECEIPT", font=("Segoe UI", 10),
-                 bg="white", fg=TEXT_MUTED).pack(anchor="w", pady=(2, 16))
+        tk.Label(card, text="Paragon Apartment Management System",
+                 font=("Segoe UI", 8), bg="white", fg=TEXT_MUTED).pack(anchor="w")
+        tk.Label(card, text="PAYMENT RECEIPT", font=("Segoe UI", 10, "bold"),
+                 bg="white", fg=TEXT_MUTED).pack(anchor="w", pady=(8, 12))
 
-        tk.Frame(card, bg=BORDER, height=1, width=400).pack(fill="x", pady=(0, 16))
+        tk.Frame(card, bg=BORDER, height=1).pack(fill="x", pady=(0, 14))
 
         for label, val in [
             ("Reference",      pay.reference_number or "—"),
@@ -381,11 +374,110 @@ class ReceiptWindow(tk.Toplevel):
             color = sc(val) if val == pay.status else TEXT
             tk.Label(row, text=val, font=FONT_BODY, bg="white", fg=color).pack(side="left")
 
-        tk.Frame(card, bg=BORDER, height=1, width=400).pack(fill="x", pady=(16, 8))
+        tk.Frame(card, bg=BORDER, height=1).pack(fill="x", pady=(14, 8))
         tk.Label(card, text="Thank you for your payment.", font=("Segoe UI", 9, "italic"),
                  bg="white", fg=TEXT_DIM).pack(anchor="w")
 
-        mkbtn(self, "Close", self.destroy, color=TEXT_MUTED, small=True).pack(pady=(12, 0))
+    def _download_pdf(self, pay):
+        default_name = f"Receipt_{pay.reference_number or 'PAMS'}.pdf".replace("/", "-").replace("\\", "-")
+        path = filedialog.asksaveasfilename(
+            parent=self,
+            title="Save Receipt PDF",
+            initialfile=default_name,
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf")],
+        )
+        if not path:
+            return
+        try:
+            self._write_pdf(pay, path)
+            messagebox.showinfo("Saved", f"Receipt saved to:\n{path}", parent=self)
+        except Exception as exc:
+            messagebox.showerror("Error", f"Could not save PDF:\n{exc}", parent=self)
+
+    @staticmethod
+    def _write_pdf(pay, path: str):
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import cm
+
+        doc = SimpleDocTemplate(
+            path, pagesize=A4,
+            leftMargin=3*cm, rightMargin=3*cm,
+            topMargin=3*cm, bottomMargin=3*cm,
+        )
+        styles = getSampleStyleSheet()
+        accent  = colors.HexColor("#3B82F6")
+        muted   = colors.HexColor("#6B7280")
+        success = colors.HexColor("#15803D")
+        dark    = colors.HexColor("#111827")
+
+        h1 = ParagraphStyle("h1", parent=styles["Normal"],
+                             fontSize=20, textColor=dark, fontName="Helvetica-Bold",
+                             spaceAfter=2)
+        sub = ParagraphStyle("sub", parent=styles["Normal"],
+                              fontSize=9, textColor=muted, fontName="Helvetica")
+        label_s = ParagraphStyle("lbl", parent=styles["Normal"],
+                                 fontSize=9, textColor=muted, fontName="Helvetica")
+        val_s = ParagraphStyle("val", parent=styles["Normal"],
+                               fontSize=10, textColor=dark, fontName="Helvetica-Bold")
+        footer_s = ParagraphStyle("ft", parent=styles["Normal"],
+                                  fontSize=9, textColor=muted, fontName="Helvetica-Oblique")
+
+        rows = [
+            ("Reference",      pay.reference_number or "—"),
+            ("Tenant",         getattr(pay, "tenant_name", "—")),
+            ("Unit",           getattr(pay, "unit_number", "—")),
+            ("City",           getattr(pay, "city", "—")),
+            ("Due Date",       pay.due_date or "—"),
+            ("Paid Date",      pay.paid_date or "—"),
+            ("Payment Method", pay.payment_method or "—"),
+            ("Amount Paid",    f"£{pay.amount_paid:,.2f}"),
+            ("Status",         pay.status),
+        ]
+
+        amount_color = success if pay.status == "Paid" else colors.HexColor("#B91C1C")
+
+        table_data = []
+        for lbl, val in rows:
+            lbl_p = Paragraph(lbl, label_s)
+            if lbl == "Amount Paid":
+                v_style = ParagraphStyle("amt", parent=val_s, fontSize=12, textColor=amount_color)
+            elif lbl == "Status":
+                v_style = ParagraphStyle("sts", parent=val_s, textColor=success if val == "Paid" else colors.HexColor("#B91C1C"))
+            else:
+                v_style = val_s
+            val_p = Paragraph(val, v_style)
+            table_data.append([lbl_p, val_p])
+
+        tbl = Table(table_data, colWidths=[4.5*cm, 10*cm])
+        tbl.setStyle(TableStyle([
+            ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, colors.HexColor("#F9FAFB")]),
+            ("TOPPADDING",    (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
+            ("LINEBELOW",     (0, -1), (-1, -1), 0.5, colors.HexColor("#E5E7EB")),
+            ("LINEABOVE",     (0, 0),  (-1, 0),  0.5, colors.HexColor("#E5E7EB")),
+        ]))
+
+        story = [
+            Paragraph("PAMS", h1),
+            Paragraph("Paragon Apartment Management System", sub),
+            Spacer(1, 0.4*cm),
+            HRFlowable(width="100%", thickness=1.5, color=accent, spaceAfter=12),
+            Paragraph("PAYMENT RECEIPT", ParagraphStyle("rc", parent=sub,
+                fontSize=11, textColor=accent, fontName="Helvetica-Bold", spaceBefore=4, spaceAfter=14)),
+            tbl,
+            Spacer(1, 0.5*cm),
+            HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#E5E7EB"), spaceAfter=10),
+            Paragraph("Thank you for your payment.", footer_s),
+            Spacer(1, 0.3*cm),
+            Paragraph(f"Generated by PAMS  •  {date.today().strftime('%d %B %Y')}", footer_s),
+        ]
+        doc.build(story)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -426,8 +518,6 @@ class InvoiceView(tk.Frame):
                          for l in active_leases]
         self._lease_map = {lbl: l for lbl, l in zip(lease_labels, active_leases)}
 
-        self.v_lease = combo_var(form, "Lease *", lease_labels, 1, 0, width=50)
-        # patch colspan manually
         tk.Label(form, text="Lease *", font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM
                  ).grid(row=1, column=0, columnspan=3, sticky="w", padx=6, pady=(8, 2))
         self.v_lease = tk.StringVar(value=lease_labels[0] if lease_labels else "")
@@ -839,14 +929,14 @@ class ReportsView(tk.Frame):
                 tk.Label(p, text=str(val),  font=("Segoe UI", 14, "bold"), bg=CARD_BG, fg=col).pack()
                 tk.Label(p, text=label, font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM).pack()
 
-            # Mini occupancy bar
+            # Mini occupancy bar — capture canvas via default arg to avoid closure bug
             bar_bg = tk.Canvas(city_card, bg=PANEL_BG, height=8, highlightthickness=0)
             bar_bg.pack(fill="x")
-            def draw_bar(e, pct=occ_pct):
-                w = bar_bg.winfo_width()
-                bar_bg.delete("all")
-                bar_bg.create_rectangle(0, 0, w, 8, fill=PANEL_BG, outline="")
-                bar_bg.create_rectangle(0, 0, int(w * pct / 100), 8, fill=ACCENT, outline="")
+            def draw_bar(e, pct=occ_pct, canvas=bar_bg):
+                w = canvas.winfo_width()
+                canvas.delete("all")
+                canvas.create_rectangle(0, 0, w, 8, fill=PANEL_BG, outline="")
+                canvas.create_rectangle(0, 0, int(w * pct / 100), 8, fill=ACCENT, outline="")
             bar_bg.bind("<Configure>", draw_bar)
 
         sec_hdr(inner, "Apartment Detail by City")
@@ -916,27 +1006,41 @@ class ReportsView(tk.Frame):
         BAR_W   = 48
         GAP     = 12
         H       = 180
+        TOP_PAD = 28   # space above bars for value labels
+        BOT_PAD = 36   # space below bars for month labels
         total_w = len(data) * (BAR_W + GAP)
 
-        canvas = tk.Canvas(chart_frame, bg=PANEL_BG, height=H + 60,
+        _MONTH_ABBR = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+        canvas = tk.Canvas(chart_frame, bg=PANEL_BG, height=H + TOP_PAD + BOT_PAD,
                            width=max(total_w + 40, 600), highlightthickness=0)
         canvas.pack(anchor="w")
 
         for i, d in enumerate(data):
             x = 24 + i * (BAR_W + GAP)
             bar_h = int((d["collected"] / max_val) * H) if max_val else 0
-            y_top = H - bar_h + 10
+            y_top = TOP_PAD + (H - bar_h)
+            y_bot = TOP_PAD + H
 
             # Bar
-            canvas.create_rectangle(x, y_top, x + BAR_W, H + 10,
+            canvas.create_rectangle(x, y_top, x + BAR_W, y_bot,
                                      fill=ACCENT, outline="")
-            # Value label
-            canvas.create_text(x + BAR_W // 2, y_top - 6,
+            # Value label — always fits because TOP_PAD gives enough room
+            canvas.create_text(x + BAR_W // 2, y_top - 4,
                                 text=f"£{d['collected']:,.0f}",
                                 fill=TEXT, font=("Segoe UI", 7), anchor="s")
-            # Month label
-            month_short = d["month"][5:] if d["month"] else "—"
-            canvas.create_text(x + BAR_W // 2, H + 20,
+            # Month label — "Mar '24" format
+            if d["month"] and len(d["month"]) >= 7:
+                try:
+                    mn = int(d["month"][5:7])
+                    yr = d["month"][2:4]
+                    month_short = f"{_MONTH_ABBR[mn]} '{yr}"
+                except (ValueError, IndexError):
+                    month_short = d["month"][5:]
+            else:
+                month_short = d["month"] or "—"
+            canvas.create_text(x + BAR_W // 2, y_bot + 8,
                                 text=month_short, fill=TEXT_DIM,
                                 font=("Segoe UI", 8), anchor="n")
 

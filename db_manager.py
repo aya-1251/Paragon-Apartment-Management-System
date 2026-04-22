@@ -225,25 +225,31 @@ class DatabaseManager:
         self.commit()
 
         # ── Staff (password: password123) ────────────────────────────────────
-        pw = self._hash_password("password123")
+        # Each account gets its own unique salt via _make_password_hash.
+        _p = "password123"
         staff_data = [
-            # Front Desk
-            ("frontdesk1", pw, "Alice",   "Johnson",  "Front Desk",       "alice@property.com",   "07700111111", 1),
-            ("frontdesk2", pw, "Bob",     "Smith",    "Front Desk",       "bob@property.com",     "07700222222", 4),
-            ("frontdesk3", pw, "Priya",   "Patel",    "Front Desk",       "priya@property.com",   "07700223344", 3),
-            ("frontdesk4", pw, "Gareth",  "Hughes",   "Front Desk",       "gareth@property.com",  "07700334455", 2),
-            # Finance Managers – one per city
-            ("finance1",   pw, "David",   "Brown",    "Finance Manager",  "david@property.com",   "07700444444", 1),
-            ("finance2",   pw, "Sophie",  "Chen",     "Finance Manager",  "sophie@property.com",  "07700444445", 2),
-            ("finance3",   pw, "Marcus",  "Webb",     "Finance Manager",  "marcus@property.com",  "07700444446", 3),
-            ("finance4",   pw, "Nadia",   "Okonkwo",  "Finance Manager",  "nadia@property.com",   "07700444447", 4),
-            # Admin / Maintenance / Manager — one maint staff per city
-            ("admin1",     pw, "Carol",   "Williams", "Administrator",    "carol@property.com",   "07700333333", 1),
-            ("maint1",     pw, "Eve",     "Davis",    "Maintenance Staff","eve@property.com",     "07700555555", 1),
-            ("maint2",     pw, "Rhys",    "Morgan",   "Maintenance Staff","rhys@property.com",    "07700555556", 2),
-            ("maint3",     pw, "Aisha",   "Nwosu",    "Maintenance Staff","aisha@property.com",   "07700555557", 3),
-            ("maint4",     pw, "Callum",  "Reid",     "Maintenance Staff","callum@property.com",  "07700555558", 4),
-            ("manager1",   pw, "Frank",   "Miller",   "Manager",          "frank@property.com",   "07700666666", 1),
+            # Front Desk — one per city
+            ("frontdesk1", self._make_password_hash(_p), "Alice",   "Johnson",  "Front Desk",       "alice@property.com",   "07700111111", 1),
+            ("frontdesk2", self._make_password_hash(_p), "Bob",     "Smith",    "Front Desk",       "bob@property.com",     "07700222222", 4),
+            ("frontdesk3", self._make_password_hash(_p), "Priya",   "Patel",    "Front Desk",       "priya@property.com",   "07700223344", 3),
+            ("frontdesk4", self._make_password_hash(_p), "Gareth",  "Hughes",   "Front Desk",       "gareth@property.com",  "07700334455", 2),
+            # Finance Managers — one per city
+            ("finance1",   self._make_password_hash(_p), "David",   "Brown",    "Finance Manager",  "david@property.com",   "07700444444", 1),
+            ("finance2",   self._make_password_hash(_p), "Sophie",  "Chen",     "Finance Manager",  "sophie@property.com",  "07700444445", 2),
+            ("finance3",   self._make_password_hash(_p), "Marcus",  "Webb",     "Finance Manager",  "marcus@property.com",  "07700444446", 3),
+            ("finance4",   self._make_password_hash(_p), "Nadia",   "Okonkwo",  "Finance Manager",  "nadia@property.com",   "07700444447", 4),
+            # Administrators — one per city
+            ("admin1",     self._make_password_hash(_p), "Carol",   "Williams", "Administrator",    "carol@property.com",   "07700333333", 1),
+            ("admin2",     self._make_password_hash(_p), "Owen",    "Davies",   "Administrator",    "owen@property.com",    "07700333334", 2),
+            ("admin3",     self._make_password_hash(_p), "Nina",    "Shah",     "Administrator",    "nina@property.com",    "07700333335", 3),
+            ("admin4",     self._make_password_hash(_p), "Ryan",    "Fletcher", "Administrator",    "ryan@property.com",    "07700333336", 4),
+            # Maintenance Staff — one per city
+            ("maint1",     self._make_password_hash(_p), "Eve",     "Davis",    "Maintenance Staff","eve@property.com",     "07700555555", 1),
+            ("maint2",     self._make_password_hash(_p), "Rhys",    "Morgan",   "Maintenance Staff","rhys@property.com",    "07700555556", 2),
+            ("maint3",     self._make_password_hash(_p), "Aisha",   "Nwosu",    "Maintenance Staff","aisha@property.com",   "07700555557", 3),
+            ("maint4",     self._make_password_hash(_p), "Callum",  "Reid",     "Maintenance Staff","callum@property.com",  "07700555558", 4),
+            # Manager
+            ("manager1",   self._make_password_hash(_p), "Frank",   "Miller",   "Manager",          "frank@property.com",   "07700666666", 1),
         ]
         cursor.executemany(
             "INSERT INTO staff (username,password_hash,first_name,last_name,role,email,phone,location_id) VALUES (?,?,?,?,?,?,?,?)",
@@ -589,18 +595,30 @@ class DatabaseManager:
 
     # ─────────────────────────── AUTH ──────────────────────────────
 
-    def _hash_password(self, password: str) -> str:
-        return hashlib.sha256(password.encode()).hexdigest()
+    def _make_password_hash(self, password: str) -> str:
+        """Return a salted hash as 'SALT:HASH' using a fresh random 16-byte salt."""
+        salt = os.urandom(16).hex()
+        hashed = hashlib.sha256((salt + password).encode()).hexdigest()
+        return f"{salt}:{hashed}"
+
+    def _verify_password(self, password: str, stored_hash: str) -> bool:
+        """Verify password against stored hash. Accepts 'SALT:HASH' or legacy unsalted format."""
+        if ":" not in stored_hash:
+            # Legacy unsalted format — accept for backward compatibility
+            return hashlib.sha256(password.encode()).hexdigest() == stored_hash
+        salt, expected = stored_hash.split(":", 1)
+        return hashlib.sha256((salt + password).encode()).hexdigest() == expected
 
     def authenticate_staff(self, username: str, password: str) -> Optional[Staff]:
+        if not username or not password:
+            return None
         cursor = self.get_cursor()
-        pw_hash = self._hash_password(password)
         cursor.execute(
-            "SELECT * FROM staff WHERE username=? AND password_hash=? AND is_active=1",
-            (username, pw_hash)
+            "SELECT * FROM staff WHERE username=? AND is_active=1",
+            (username,)
         )
         row = cursor.fetchone()
-        if row:
+        if row and self._verify_password(password, row["password_hash"]):
             return self._row_to_staff(row)
         return None
 
@@ -1564,7 +1582,7 @@ class DatabaseManager:
     def create_staff(self, username: str, password: str, first_name: str, last_name: str,
                      role: str, email: str, phone: str, location_id: int) -> int:
         cursor = self.get_cursor()
-        pw = self._hash_password(password)
+        pw = self._make_password_hash(password)
         cursor.execute("""
             INSERT INTO staff (username,password_hash,first_name,last_name,role,email,phone,location_id)
             VALUES (?,?,?,?,?,?,?,?)
@@ -1584,7 +1602,7 @@ class DatabaseManager:
     def reset_staff_password(self, staff_id: int, new_password: str) -> None:
         cursor = self.get_cursor()
         cursor.execute("UPDATE staff SET password_hash=? WHERE id=?",
-                       (self._hash_password(new_password), staff_id))
+                       (self._make_password_hash(new_password), staff_id))
         self.commit()
 
     def toggle_staff_active(self, staff_id: int) -> bool:
@@ -1676,6 +1694,20 @@ class DatabaseManager:
         cursor.execute("UPDATE leases SET status=? WHERE id=?", (status, lease_id))
         self.commit()
 
+    def request_early_termination(self, lease_id: int, apartment_id: int,
+                                   notice_date: str, termination_date: str) -> None:
+        cursor = self.get_cursor()
+        cursor.execute("""
+            UPDATE leases
+               SET early_termination_requested = 1,
+                   notice_given_date           = ?,
+                   early_termination_date      = ?,
+                   status                      = 'Terminated'
+             WHERE id = ?
+        """, (notice_date, termination_date, lease_id))
+        self.commit()
+        self.update_apartment_status(apartment_id, ApartmentStatus.AVAILABLE.value)
+
     # ── Location / City Management (Manager only) ─────────────────────────────
 
     def add_location(self, city: str, address: str, postcode: str,
@@ -1720,6 +1752,72 @@ class DatabaseManager:
                 "staff_count":  staff_count,
             })
         return result
+
+    def get_table_data(self, table_name: str,
+                       location_id: Optional[int] = None) -> tuple:
+        """Return (column_names, rows) for the Data Explorer.
+
+        location_id scopes the result to a single city where possible.
+        password_hash is masked automatically.
+        Only whitelisted tables are accessible to prevent SQL injection.
+        """
+        _ALLOWED = {
+            "apartments", "tenants", "leases", "payments",
+            "maintenance_requests", "complaints", "locations",
+            "staff", "workers",
+        }
+        if table_name not in _ALLOWED:
+            raise ValueError(f"Table not available: {table_name}")
+
+        _MASKED = {"password_hash"}
+
+        cursor = self.get_cursor()
+
+        if location_id:
+            if table_name == "apartments":
+                cursor.execute("SELECT * FROM apartments WHERE location_id=?", (location_id,))
+            elif table_name == "staff":
+                cursor.execute("SELECT * FROM staff WHERE location_id=?", (location_id,))
+            elif table_name == "workers":
+                cursor.execute("SELECT * FROM workers WHERE location_id=?", (location_id,))
+            elif table_name == "leases":
+                cursor.execute("""
+                    SELECT l.* FROM leases l
+                    JOIN apartments a ON l.apartment_id = a.id
+                    WHERE a.location_id = ?""", (location_id,))
+            elif table_name == "payments":
+                cursor.execute("""
+                    SELECT p.* FROM payments p
+                    JOIN leases l ON p.lease_id = l.id
+                    JOIN apartments a ON l.apartment_id = a.id
+                    WHERE a.location_id = ?""", (location_id,))
+            elif table_name == "maintenance_requests":
+                cursor.execute("""
+                    SELECT m.* FROM maintenance_requests m
+                    JOIN apartments a ON m.apartment_id = a.id
+                    WHERE a.location_id = ?""", (location_id,))
+            elif table_name == "complaints":
+                cursor.execute("""
+                    SELECT c.* FROM complaints c
+                    JOIN apartments a ON c.apartment_id = a.id
+                    WHERE a.location_id = ?""", (location_id,))
+            else:
+                cursor.execute(f"SELECT * FROM {table_name}")  # noqa: S608 — table_name is whitelisted above
+        else:
+            cursor.execute(f"SELECT * FROM {table_name}")  # noqa: S608
+
+        rows = cursor.fetchall()
+        if not rows:
+            cursor.execute(f"PRAGMA table_info({table_name})")  # noqa: S608
+            columns = [r["name"] for r in cursor.fetchall()]
+            return columns, []
+
+        columns = list(rows[0].keys())
+        result = [
+            tuple("••••••••" if col in _MASKED else row[col] for col in columns)
+            for row in rows
+        ]
+        return columns, result
 
     def get_performance_report(self, location_id: Optional[int] = None) -> dict:
         """Comprehensive performance data for a location or all locations."""
