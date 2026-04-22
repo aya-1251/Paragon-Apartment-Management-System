@@ -941,11 +941,16 @@ class DatabaseManager:
         return [self._row_to_lease(r) for r in cursor.fetchall()]
 
     def _row_to_lease(self, row) -> Lease:
+        from datetime import date as _date
+        status = row["status"]
+        end_date = row["end_date"]
+        if status == "Active" and end_date and end_date < str(_date.today()):
+            status = "Expired"
         return Lease(
             id=row["id"], tenant_id=row["tenant_id"], apartment_id=row["apartment_id"],
-            start_date=row["start_date"], end_date=row["end_date"],
+            start_date=row["start_date"], end_date=end_date,
             monthly_rent=row["monthly_rent"], deposit_amount=row["deposit_amount"],
-            status=row["status"],
+            status=status,
             early_termination_requested=bool(row["early_termination_requested"]),
             early_termination_date=row["early_termination_date"],
             notice_given_date=row["notice_given_date"],
@@ -1677,6 +1682,7 @@ class DatabaseManager:
             JOIN apartments a ON l.apartment_id=a.id
             JOIN locations loc ON a.location_id=loc.id
             WHERE l.status='Active'
+              AND julianday(l.end_date) - julianday('now') >= 0
               AND julianday(l.end_date) - julianday('now') <= ?
               {loc_filter}
             ORDER BY l.end_date ASC

@@ -312,7 +312,7 @@ class StaffView(tk.Frame):
                   small=True).pack(side="left", padx=(0, 4))
             toggle_txt = "Deactivate" if s.is_active else "Activate"
             toggle_col = WARNING if s.is_active else SUCCESS
-            if s.id != self.staff.id:  # can't deactivate yourself
+            if s.id != self.staff.id and s.role != "Manager":
                 mkbtn(act, toggle_txt, lambda sid=s.id: self._toggle(sid),
                       color=toggle_col, small=True).pack(side="left", padx=(0, 4))
             mkbtn(act, "Reset PW", lambda sid=s.id: self._reset_pw(sid),

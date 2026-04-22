@@ -86,6 +86,7 @@ class ManagerAppShell(BaseAppShell):
             ("leases",    "📄  Lease Tracker",      "leases"),
             ("perf",      "📊  Performance",        "perf"),
             ("expand",    "🌆  Expand Business",    "expand"),
+            ("staff",     "👥  Staff Accounts",     "staff"),
             ("explorer",  "🔍  Data Explorer",      "explorer"),
         ]:
             row = tk.Frame(sb, bg=PANEL_BG)
@@ -118,6 +119,7 @@ class ManagerAppShell(BaseAppShell):
         elif dest == "leases":    AllLeasesView(self.content, self.staff, self.db)
         elif dest == "perf":      PerformanceView(self.content, self.staff, self.db)
         elif dest == "expand":    ExpandView(self.content, self.staff, self.db)
+        elif dest == "staff":     ManagerStaffView(self.content, self.staff, self.db)
         elif dest == "explorer":  DataExplorerView(self.content, self.staff, self.db)
 
 
@@ -833,3 +835,81 @@ class ExpandView(tk.Frame):
             # Refresh
             for w in self.winfo_children(): w.destroy()
             self._build()
+
+
+# ══════════════════════════════════════════════════════════════════
+#  MANAGER STAFF VIEW — read-only view of all staff across all cities
+# ══════════════════════════════════════════════════════════════════
+
+class ManagerStaffView(tk.Frame):
+    def __init__(self, parent, staff, db):
+        super().__init__(parent, bg=DARK_BG)
+        self.staff = staff
+        self.db = db
+        self._staff_list = []
+        self.pack(fill="both", expand=True)
+        self._build()
+        self._load()
+
+    def _get_export_data(self):
+        cols = ["ID", "Name", "Username", "Role", "City", "Email", "Phone", "Active"]
+        rows = [(s.id, s.full_name, s.username, s.role, getattr(s, "city", ""),
+                 s.email or "", s.phone or "", "Yes" if s.is_active else "No")
+                for s in self._staff_list]
+        return cols, rows
+
+    def _build(self):
+        hdr = tk.Frame(self, bg=DARK_BG, padx=28, pady=20)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="Staff Accounts", font=FONT_HEAD, bg=DARK_BG, fg=TEXT).pack(anchor="w")
+        tk.Label(hdr, text="All staff across every location — read-only overview.",
+                 font=FONT_BODY, bg=DARK_BG, fg=TEXT_DIM).pack(anchor="w")
+
+        bar = tk.Frame(self, bg=DARK_BG)
+        bar.pack(fill="x", padx=28, pady=(0, 8))
+        export_bar(bar, "All_Staff", self._get_export_data).pack(side="left")
+
+        outer, self.table = scrollable(self, DARK_BG)
+        outer.pack(fill="both", expand=True)
+
+    def _load(self):
+        for w in self.table.winfo_children(): w.destroy()
+        self._staff_list = self.db.get_all_staff()
+
+        # Summary pills by role
+        pills = tk.Frame(self.table, bg=DARK_BG)
+        pills.pack(fill="x", padx=24, pady=(8, 12))
+        from collections import Counter
+        counts = Counter(s.role for s in self._staff_list)
+        for role, count in sorted(counts.items()):
+            p = tk.Frame(pills, bg=CARD_BG, padx=12, pady=6)
+            p.pack(side="left", padx=(0, 6))
+            tk.Label(p, text=str(count), font=("Segoe UI", 13, "bold"),
+                     bg=CARD_BG, fg=ACCENT2).pack()
+            tk.Label(p, text=role, font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM).pack()
+
+        COLS = [("ID", 4), ("Name", 18), ("Username", 14), ("Role", 18),
+                ("City", 14), ("Email", 22), ("Active", 7)]
+        col_headers(self.table, COLS)
+
+        current_city = None
+        for s in self._staff_list:
+            city = getattr(s, "city", "") or "—"
+            if city != current_city:
+                current_city = city
+                sec = tk.Frame(self.table, bg=DARK_BG)
+                sec.pack(fill="x", padx=24, pady=(10, 2))
+                tk.Label(sec, text=f"📍  {city}", font=FONT_SUB,
+                         bg=DARK_BG, fg=TEXT).pack(side="left")
+
+            row = tk.Frame(self.table, bg=CARD_BG)
+            row.pack(fill="x", padx=24)
+            active_col = SUCCESS if s.is_active else DANGER
+            active_txt = "✓ Yes" if s.is_active else "✗ No"
+            for val, w in [(str(s.id), 4), (s.full_name, 18), (s.username, 14),
+                           (s.role, 18), (city, 14), (s.email or "—", 22)]:
+                tk.Label(row, text=val, font=FONT_BODY, bg=CARD_BG, fg=TEXT,
+                         width=w, anchor="w").pack(side="left", padx=4, pady=6)
+            tk.Label(row, text=active_txt, font=FONT_BODY, bg=CARD_BG,
+                     fg=active_col, width=7, anchor="w").pack(side="left", padx=4)
+            divider(self.table)

@@ -983,22 +983,22 @@ class JobTypesView(tk.Frame):
         cat = self._cat_v.get()
         types = self.db.get_maintenance_types(category=None if cat=="All" else cat)
         cats_grouped = {}
-        for mt in types: cats_grouped.setdefault(mt["category"], []).append(mt)
+        for mt in types: cats_grouped.setdefault(mt.category, []).append(mt)
         for cat_name, items in cats_grouped.items():
             sec_hdr(self.inner, cat_name)
-            COLS = [("Job Type",20),("Description",32),("Cost Range",14),
-                    ("Hrs",7),("Specialty",15),("Notes",22)]
+            COLS = [("Job Type",18),("Description",30),("Cost Range",12),
+                    ("Hrs",6),("Specialty",13),("Notes",20)]
             col_headers(self.inner, COLS)
             for mt in items:
                 row = tk.Frame(self.inner, bg=CARD_BG)
                 row.pack(fill="x", padx=24)
                 for val, w in [
-                    (mt["name"], 20),
-                    (mt["description"][:40], 32),
-                    (f"£{mt['typical_cost_min']:.0f}–£{mt['typical_cost_max']:.0f}", 14),
-                    (f"{mt['typical_hours']:.1f}", 7),
-                    (mt["required_specialty"], 15),
-                    ((mt["notes"] or "—")[:30], 22),
+                    (mt.name, 18),
+                    (mt.description[:36], 30),
+                    (f"£{mt.typical_cost_min:.0f}–£{mt.typical_cost_max:.0f}", 12),
+                    (f"{mt.typical_hours:.1f}", 6),
+                    (mt.required_specialty, 13),
+                    ((mt.notes or "—")[:25], 20),
                 ]:
                     tk.Label(row, text=val, font=FONT_BODY, bg=CARD_BG, fg=TEXT,
                              width=w, anchor="w").pack(side="left", padx=4, pady=6)
