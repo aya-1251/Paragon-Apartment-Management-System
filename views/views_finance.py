@@ -254,9 +254,8 @@ class PaymentsView(tk.Frame):
                 tk.Label(row, text=val, font=FONT_BODY, bg=CARD_BG, fg=color,
                          width=w, anchor="w").pack(side="left", padx=4, pady=6)
 
-            act = tk.Frame(row, bg=CARD_BG, width=14*8)
+            act = tk.Frame(row, bg=CARD_BG)
             act.pack(side="left", padx=4)
-            act.pack_propagate(False)
             if pay.status in ("Pending", "Overdue"):
                 mkbtn(act, "Mark Paid", lambda p=pay: self._mark_paid(p),
                       color=SUCCESS, small=True).pack(side="left", pady=3)
