@@ -603,7 +603,7 @@ class BaseAppShell(tk.Frame, ABC):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class AppShell(BaseAppShell):
-    """Concrete shell for Front-Desk staff: Apartments + Create Lease."""
+    """Concrete shell for Front-Desk staff."""
 
     def __init__(self, parent, staff, db):
         super().__init__(parent, staff, db)
@@ -622,8 +622,12 @@ class AppShell(BaseAppShell):
         badge(uc, self.staff.role, ACCENT).pack(anchor="w", pady=(4, 0))
 
         for key, label, dest in [
-            ("commune",      "🏠  Apartments",   "commune"),
-            ("create_lease", "➕  Create Lease",  "create_lease"),
+            ("commune",        "🏠  Apartments",           "commune"),
+            ("reg_tenant",     "👤  Register Tenant",      "reg_tenant"),
+            ("tenant_records", "📋  Tenant Records",       "tenant_records"),
+            ("log_complaint",  "💬  Log Complaint",        "log_complaint"),
+            ("log_maint",      "🔧  Log Maintenance",      "log_maint"),
+            ("maint_requests", "🛠  Maintenance Requests", "maint_requests"),
         ]:
             row = tk.Frame(sb, bg=PANEL_BG)
             row.pack(fill="x")
@@ -651,9 +655,21 @@ class AppShell(BaseAppShell):
         self._clear()
         if dest == "commune":
             CommuneView(self.content, self.staff, self.db)
-        elif dest == "create_lease":
-            CreateLeaseWizard(self.content, self.staff, self.db,
-                              on_complete=lambda: self._nav("commune", "commune"))
+        elif dest == "reg_tenant":
+            RegisterTenantView(self.content, self.staff, self.db,
+                               on_complete=lambda: self._nav("tenant_records", "tenant_records"))
+        elif dest == "tenant_records":
+            TenantRecordsView(self.content, self.staff, self.db)
+        elif dest == "log_complaint":
+            LogComplaintView(self.content, self.staff, self.db,
+                             on_complete=lambda: self._nav("commune", "commune"))
+        elif dest == "log_maint":
+            from views.views_maintenance import AddRequestView
+            AddRequestView(self.content, self.staff, self.db,
+                           on_complete=lambda: self._nav("maint_requests", "maint_requests"))
+        elif dest == "maint_requests":
+            from views.views_maintenance import RequestsView
+            RequestsView(self.content, self.staff, self.db)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1766,3 +1782,321 @@ class EarlyTerminationDialog(tk.Toplevel):
         if self.on_save:
             self.on_save()
         self.destroy()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  REGISTER TENANT VIEW  — Front-Desk standalone tenant registration
+# ══════════════════════════════════════════════════════════════════════════════
+
+class RegisterTenantView(tk.Frame):
+    def __init__(self, parent, staff, db, on_complete=None):
+        super().__init__(parent, bg=DARK_BG)
+        self.staff = staff
+        self.db = db
+        self.on_complete = on_complete
+        self.pack(fill="both", expand=True)
+        self._build()
+
+    def _build(self):
+        top = tk.Frame(self, bg=DARK_BG, padx=28, pady=20)
+        top.pack(fill="x")
+        tk.Label(top, text="Register Tenant", font=FONT_HEAD, bg=DARK_BG, fg=TEXT).pack(anchor="w")
+        tk.Label(top, text="Create a new tenant record.", font=FONT_BODY, bg=DARK_BG, fg=TEXT_DIM).pack(anchor="w")
+
+        outer, inner = scrollable(self, DARK_BG)
+        outer.pack(fill="both", expand=True, padx=28, pady=(0, 20))
+        inner.config(bg=CARD_BG)
+        form = tk.Frame(inner, bg=CARD_BG, padx=32, pady=24)
+        form.pack(fill="x")
+        for c in range(3): form.columnconfigure(c, weight=1)
+
+        def slbl(r, txt):
+            wrap = tk.Frame(form, bg=CARD_BG)
+            wrap.grid(row=r, column=0, columnspan=3, sticky="ew", pady=(18, 4), padx=6)
+            tk.Frame(wrap, bg=ACCENT, width=3).pack(side="left", fill="y", padx=(0, 8))
+            tk.Label(wrap, text=txt, font=FONT_SUB, bg=CARD_BG, fg=TEXT).pack(side="left")
+
+        slbl(0, "Personal Details")
+        self.ni  = entry_var(form, "NI Number *",   1, 0, placeholder="e.g. AB123456C")
+        self.fn  = entry_var(form, "First Name *",  1, 1, placeholder="e.g. John")
+        self.ln  = entry_var(form, "Last Name *",   1, 2, placeholder="e.g. Smith")
+        self.dob = entry_var(form, "Date of Birth", 3, 0, placeholder="YYYY-MM-DD")
+        self.ph  = entry_var(form, "Phone *",       3, 1, placeholder="e.g. 07700 123456")
+        self.em  = entry_var(form, "Email *",       3, 2, placeholder="e.g. john@email.com")
+        self.oc  = entry_var(form, "Occupation",    5, 0, placeholder="e.g. Engineer")
+
+        slbl(7, "Emergency Contact")
+        self.ecn = entry_var(form, "Contact Name",  8, 0, placeholder="e.g. Jane Smith")
+        self.ecp = entry_var(form, "Contact Phone", 8, 1, placeholder="e.g. 07700 654321")
+
+        slbl(10, "References")
+        self.r1n = entry_var(form, "Ref 1 Name *",  11, 0, placeholder="e.g. Dr. Brown")
+        self.r1p = entry_var(form, "Ref 1 Phone",   11, 1, placeholder="e.g. 07700 111222")
+        self.r1e = entry_var(form, "Ref 1 Email",   11, 2, placeholder="e.g. ref@email.com")
+        self.r2n = entry_var(form, "Ref 2 Name",    13, 0, placeholder="e.g. Dr. Jones")
+        self.r2p = entry_var(form, "Ref 2 Phone",   13, 1, placeholder="e.g. 07700 333444")
+        self.r2e = entry_var(form, "Ref 2 Email",   13, 2, placeholder="e.g. ref2@email.com")
+
+        slbl(15, "Notes")
+        self.nt = tk.Text(form, font=FONT_BODY, bg=PANEL_BG, fg=TEXT, insertbackground=TEXT,
+                          relief="flat", bd=0, width=70, height=4,
+                          highlightthickness=1, highlightcolor=ACCENT, highlightbackground=BORDER)
+        self.nt.grid(row=16, column=0, columnspan=3, sticky="ew", padx=6)
+
+        nav = tk.Frame(form, bg=CARD_BG, pady=16)
+        nav.grid(row=17, column=0, columnspan=3, sticky="ew")
+        mkbtn(nav, "Cancel", lambda: self.on_complete and self.on_complete(),
+              color=TEXT_MUTED).pack(side="left")
+        mkbtn(nav, "Register Tenant ✓", self._submit, color=SUCCESS).pack(side="right")
+
+    def _submit(self):
+        import sqlite3
+        ni = self.ni.get().strip().upper()
+        fn = self.fn.get().strip()
+        ln = self.ln.get().strip()
+        ph = self.ph.get().strip()
+        em = self.em.get().strip()
+        r1n = self.r1n.get().strip()
+        if not all([ni, fn, ln, ph, em]):
+            messagebox.showwarning("Missing Fields",
+                                   "Please fill in all required (*) fields.", parent=self)
+            return
+        if not re.fullmatch(r"[A-Z]{2}\d{6}[A-Z]", ni):
+            messagebox.showwarning("Invalid NI Number",
+                "NI Number must be 2 letters, 6 digits, then 1 letter (e.g. AB123456C).",
+                parent=self)
+            return
+        ph_digits = re.sub(r"[\s\-]", "", ph)
+        if not re.fullmatch(r"(\+44|0)\d{9,10}", ph_digits):
+            messagebox.showwarning("Invalid Phone Number",
+                "Phone must be a valid UK number (e.g. 07700 123456 or +44 7700 123456).",
+                parent=self)
+            return
+        if not r1n:
+            messagebox.showwarning("Missing Fields",
+                                   "At least one reference name is required.", parent=self)
+            return
+        t = Tenant(
+            ni_number=ni, first_name=fn, last_name=ln,
+            phone=ph, email=em, occupation=self.oc.get().strip(),
+            date_of_birth=self.dob.get().strip(),
+            emergency_contact_name=self.ecn.get().strip(),
+            emergency_contact_phone=self.ecp.get().strip(),
+            reference1_name=r1n,
+            reference1_phone=self.r1p.get().strip(),
+            reference1_email=self.r1e.get().strip(),
+            reference2_name=self.r2n.get().strip(),
+            reference2_phone=self.r2p.get().strip(),
+            reference2_email=self.r2e.get().strip(),
+            notes=self.nt.get("1.0", "end-1c").strip(),
+        )
+        try:
+            tid = self.db.create_tenant(t)
+        except sqlite3.IntegrityError:
+            messagebox.showerror("Duplicate NI Number",
+                                 f"A tenant with NI number {ni} already exists.", parent=self)
+            return
+        messagebox.showinfo("Registered ✓",
+                            f"Tenant {fn} {ln} registered (ID #{tid}).", parent=self)
+        if self.on_complete:
+            self.on_complete()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  TENANT RECORDS VIEW  — searchable tenant table for Front-Desk
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TenantRecordsView(tk.Frame):
+    def __init__(self, parent, staff, db):
+        super().__init__(parent, bg=DARK_BG)
+        self.staff = staff
+        self.db = db
+        self._all: List[Tenant] = []
+        self.pack(fill="both", expand=True)
+        self._build()
+        self._load()
+
+    def _get_export_data(self):
+        cols = ["NI Number", "Full Name", "Phone", "Email", "Occupation"]
+        rows = [(t.ni_number, t.full_name, t.phone, t.email, t.occupation or "")
+                for t in self._shown]
+        return cols, rows
+
+    def _build(self):
+        top = tk.Frame(self, bg=DARK_BG, padx=28, pady=20)
+        top.pack(fill="x")
+        lft = tk.Frame(top, bg=DARK_BG)
+        lft.pack(side="left", fill="x", expand=True)
+        tk.Label(lft, text="Tenant Records", font=FONT_HEAD, bg=DARK_BG, fg=TEXT).pack(anchor="w")
+        tk.Label(lft, text="All tenants — search by name, NI number, phone or email.",
+                 font=FONT_BODY, bg=DARK_BG, fg=TEXT_DIM).pack(anchor="w")
+
+        bar = tk.Frame(self, bg=DARK_BG, padx=28, pady=(0, 8))
+        bar.pack(fill="x")
+        self._q = tk.StringVar()
+        self._q.trace_add("write", lambda *_: self._filter())
+        srch = tk.Entry(bar, textvariable=self._q, font=FONT_BODY, bg=PANEL_BG, fg=TEXT,
+                        insertbackground=TEXT, relief="flat", bd=0, width=40,
+                        highlightthickness=1, highlightcolor=ACCENT, highlightbackground=BORDER)
+        srch.pack(side="left", ipady=5, padx=(0, 12))
+        srch.insert(0, "Search name, NI, phone, email…")
+        srch.config(fg=TEXT_MUTED)
+        def _fin(e):
+            if srch.get() == "Search name, NI, phone, email…":
+                srch.delete(0, "end"); srch.config(fg=TEXT)
+        def _fout(e):
+            if not srch.get(): srch.insert(0, "Search name, NI, phone, email…"); srch.config(fg=TEXT_MUTED)
+        srch.bind("<FocusIn>", _fin); srch.bind("<FocusOut>", _fout)
+
+        export_bar(bar, "Tenant_Records", self._get_export_data).pack(side="right")
+
+        # Treeview
+        frame = tk.Frame(self, bg=DARK_BG, padx=28, pady=(0, 20))
+        frame.pack(fill="both", expand=True)
+        cols = ("ni", "name", "phone", "email", "occupation")
+        self._tv = ttk.Treeview(frame, columns=cols, show="headings", selectmode="browse")
+        for cid, lbl, w in [("ni","NI Number",110),("name","Full Name",180),
+                             ("phone","Phone",120),("email","Email",200),("occupation","Occupation",130)]:
+            self._tv.heading(cid, text=lbl)
+            self._tv.column(cid, width=w, anchor="w")
+        sb = ttk.Scrollbar(frame, orient="vertical", command=self._tv.yview)
+        self._tv.configure(yscrollcommand=sb.set)
+        self._tv.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+
+    def _load(self):
+        self._all = self.db.get_all_tenants()
+        self._shown = list(self._all)
+        self._refresh()
+
+    def _filter(self):
+        q = self._q.get().strip().lower()
+        placeholder = "search name, ni, phone, email…"
+        if not q or q == placeholder:
+            self._shown = list(self._all)
+        else:
+            self._shown = [t for t in self._all if
+                           q in t.full_name.lower() or q in t.ni_number.lower() or
+                           q in (t.phone or "").lower() or q in (t.email or "").lower()]
+        self._refresh()
+
+    def _refresh(self):
+        self._tv.delete(*self._tv.get_children())
+        for t in self._shown:
+            self._tv.insert("", "end", values=(
+                t.ni_number, t.full_name, t.phone or "—",
+                t.email or "—", t.occupation or "—"))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  LOG COMPLAINT VIEW  — Front-Desk standalone complaint form
+# ══════════════════════════════════════════════════════════════════════════════
+
+class LogComplaintView(tk.Frame):
+    def __init__(self, parent, staff, db, on_complete=None):
+        super().__init__(parent, bg=DARK_BG)
+        self.staff = staff
+        self.db = db
+        self.on_complete = on_complete
+        self._active_lease = None
+        self.pack(fill="both", expand=True)
+        self._build()
+
+    def _build(self):
+        top = tk.Frame(self, bg=DARK_BG, padx=28, pady=20)
+        top.pack(fill="x")
+        tk.Label(top, text="Log Complaint", font=FONT_HEAD, bg=DARK_BG, fg=TEXT).pack(anchor="w")
+        tk.Label(top, text="Register a tenant complaint against an occupied unit.",
+                 font=FONT_BODY, bg=DARK_BG, fg=TEXT_DIM).pack(anchor="w")
+
+        outer, inner = scrollable(self, DARK_BG)
+        outer.pack(fill="both", expand=True, padx=28, pady=(0, 20))
+        inner.config(bg=CARD_BG)
+        form = tk.Frame(inner, bg=CARD_BG, padx=32, pady=24)
+        form.pack(fill="x")
+        form.columnconfigure(0, weight=1); form.columnconfigure(1, weight=1)
+
+        # Apartment picker
+        apts = self.db.get_all_apartments(self.staff.location_id)
+        occupied = [a for a in apts if a.status == "Occupied"]
+        apt_labels = [f"Unit {a.unit_number}  ({a.apartment_type})" for a in occupied]
+        self._apt_map = {lbl: a for lbl, a in zip(apt_labels, occupied)}
+
+        tk.Label(form, text="Apartment *", font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM
+                 ).grid(row=0, column=0, columnspan=2, sticky="w", padx=6, pady=(0, 2))
+        self.v_apt = tk.StringVar(value=apt_labels[0] if apt_labels else "")
+        cb_apt = ttk.Combobox(form, textvariable=self.v_apt, values=apt_labels,
+                              font=FONT_BODY, width=45, state="readonly")
+        cb_apt.grid(row=1, column=0, columnspan=2, sticky="ew", padx=6, pady=(0, 4))
+        cb_apt.bind("<<ComboboxSelected>>", self._on_apt_change)
+
+        self._tenant_lbl = tk.Label(form, text="", font=FONT_SMALL, bg=CARD_BG, fg=ACCENT)
+        self._tenant_lbl.grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=(0, 8))
+
+        self.v_title = entry_var(form, "Complaint Title *", 3, 0, colspan=2, width=48)
+        self.v_cat = combo_var(form, "Category *",
+                               ["Noise", "Property Damage", "Maintenance",
+                                "Neighbour Dispute", "Billing", "Staff Conduct", "Other"], 5, 0)
+        self.v_pri = combo_var(form, "Priority", [p.value for p in MaintenancePriority], 5, 1, default="Medium")
+
+        tk.Label(form, text="Date Reported *", font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM
+                 ).grid(row=7, column=0, sticky="w", padx=6, pady=(8, 2))
+        self.v_date = tk.StringVar(value=str(date.today()))
+        tk.Entry(form, textvariable=self.v_date, font=FONT_BODY, bg=PANEL_BG, fg=TEXT,
+                 insertbackground=TEXT, relief="flat", bd=0, width=16,
+                 highlightthickness=1, highlightcolor=ACCENT, highlightbackground=BORDER
+                 ).grid(row=8, column=0, sticky="w", padx=6, ipady=4)
+
+        tk.Label(form, text="Description *", font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM
+                 ).grid(row=9, column=0, columnspan=2, sticky="w", padx=6, pady=(8, 2))
+        self.v_desc = tk.Text(form, font=FONT_BODY, bg=PANEL_BG, fg=TEXT, insertbackground=TEXT,
+                              relief="flat", bd=0, width=60, height=6,
+                              highlightthickness=1, highlightcolor=ACCENT, highlightbackground=BORDER)
+        self.v_desc.grid(row=10, column=0, columnspan=2, sticky="ew", padx=6)
+
+        nav = tk.Frame(form, bg=CARD_BG, pady=16)
+        nav.grid(row=11, column=0, columnspan=2, sticky="ew")
+        mkbtn(nav, "Cancel", lambda: self.on_complete and self.on_complete(),
+              color=TEXT_MUTED).pack(side="left")
+        mkbtn(nav, "Submit Complaint ✓", self._submit, color=WARNING).pack(side="right")
+
+        if apt_labels:
+            self._on_apt_change(None)
+
+    def _on_apt_change(self, _event):
+        apt = self._apt_map.get(self.v_apt.get())
+        if not apt:
+            self._active_lease = None
+            self._tenant_lbl.config(text="")
+            return
+        lease = self.db.get_active_lease_for_apartment(apt.id)
+        self._active_lease = lease
+        if lease:
+            self._tenant_lbl.config(text=f"Tenant: {lease.tenant_name}")
+        else:
+            self._tenant_lbl.config(text="No active lease for this unit.")
+
+    def _submit(self):
+        apt = self._apt_map.get(self.v_apt.get())
+        if not apt:
+            messagebox.showwarning("Missing", "Select an apartment.", parent=self)
+            return
+        lease = self._active_lease
+        if not lease:
+            messagebox.showwarning("No Lease",
+                                   "Selected apartment has no active lease.", parent=self)
+            return
+        title = self.v_title.get().strip()
+        desc = self.v_desc.get("1.0", "end-1c").strip()
+        if not title or not desc:
+            messagebox.showwarning("Missing Fields",
+                                   "Please fill in title and description.", parent=self)
+            return
+        self.db.create_complaint(Complaint(
+            lease_id=lease.id, tenant_id=lease.tenant_id,
+            apartment_id=lease.apartment_id, title=title, description=desc,
+            category=self.v_cat.get(), status=ComplaintStatus.OPEN.value,
+            reported_date=self.v_date.get().strip(), created_by=self.staff.id))
+        messagebox.showinfo("Registered ✓", "Complaint registered successfully.", parent=self)
+        if self.on_complete:
+            self.on_complete()
