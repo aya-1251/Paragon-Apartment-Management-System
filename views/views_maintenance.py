@@ -24,7 +24,7 @@ PRIORITY_COLORS = {"Urgent": DANGER, "High": WARNING, "Medium": WARNING, "Low": 
 def priority_badge(parent, priority):
     color = PRIORITY_COLORS.get(priority, TEXT_DIM)
     return tk.Label(parent, text=f"  {priority}  ", font=FONT_SMALL,
-                    bg=color + "2A", fg=color, relief="flat", padx=3, pady=2)
+                    bg=color, fg=color, relief="flat", padx=3, pady=2)
 
 def col_headers(parent, cols, bg=PANEL_BG):
     row = tk.Frame(parent, bg=bg)

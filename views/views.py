@@ -656,8 +656,8 @@ class AppShell(BaseAppShell):
         if dest == "commune":
             CommuneView(self.content, self.staff, self.db)
         elif dest == "reg_tenant":
-            RegisterTenantView(self.content, self.staff, self.db,
-                               on_complete=lambda: self._nav("tenant_records", "tenant_records"))
+            CreateLeaseWizard(self.content, self.staff, self.db,
+                              on_complete=lambda: self._nav("tenant_records", "tenant_records"))
         elif dest == "tenant_records":
             TenantRecordsView(self.content, self.staff, self.db)
         elif dest == "log_complaint":
@@ -1931,8 +1931,8 @@ class TenantRecordsView(tk.Frame):
         tk.Label(lft, text="All tenants — search by name, NI number, phone or email.",
                  font=FONT_BODY, bg=DARK_BG, fg=TEXT_DIM).pack(anchor="w")
 
-        bar = tk.Frame(self, bg=DARK_BG, padx=28, pady=(0, 8))
-        bar.pack(fill="x")
+        bar = tk.Frame(self, bg=DARK_BG)
+        bar.pack(fill="x", padx=28, pady=(0, 8))
         self._q = tk.StringVar()
         self._q.trace_add("write", lambda *_: self._filter())
         srch = tk.Entry(bar, textvariable=self._q, font=FONT_BODY, bg=PANEL_BG, fg=TEXT,
@@ -1951,8 +1951,8 @@ class TenantRecordsView(tk.Frame):
         export_bar(bar, "Tenant_Records", self._get_export_data).pack(side="right")
 
         # Treeview
-        frame = tk.Frame(self, bg=DARK_BG, padx=28, pady=(0, 20))
-        frame.pack(fill="both", expand=True)
+        frame = tk.Frame(self, bg=DARK_BG)
+        frame.pack(fill="both", expand=True, padx=28, pady=(0, 20))
         cols = ("ni", "name", "phone", "email", "occupation")
         self._tv = ttk.Treeview(frame, columns=cols, show="headings", selectmode="browse")
         for cid, lbl, w in [("ni","NI Number",110),("name","Full Name",180),

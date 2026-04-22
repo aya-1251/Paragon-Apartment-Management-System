@@ -1710,12 +1710,13 @@ class DatabaseManager:
         row = cursor.fetchone()
         if row:
             penalty = round(row["monthly_rent"] * 0.05, 2)
+            reference = f"PENALTY-{lease_id}"
             cursor.execute("""
                 INSERT INTO payments
-                    (lease_id, amount_due, amount_paid, due_date, status, notes)
-                VALUES (?, ?, 0, ?, 'Pending',
+                    (lease_id, amount_due, amount_paid, due_date, status, reference_number, notes)
+                VALUES (?, ?, 0, ?, 'Pending', ?,
                         'Early termination penalty (5% of monthly rent)')
-            """, (lease_id, penalty, termination_date))
+            """, (lease_id, penalty, termination_date, reference))
         self.commit()
         self.update_apartment_status(apartment_id, ApartmentStatus.AVAILABLE.value)
 

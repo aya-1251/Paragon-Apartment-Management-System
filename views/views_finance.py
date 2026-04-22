@@ -263,6 +263,11 @@ class PaymentsView(tk.Frame):
             elif pay.status == "Paid":
                 mkbtn(act, "Receipt", lambda p=pay: ReceiptWindow(self, p),
                       small=True).pack(side="left", pady=3)
+
+            if (pay.reference_number or "").startswith("PENALTY-"):
+                tk.Label(self.table, text=f"  ℹ  {pay.notes}", font=FONT_SMALL,
+                         bg=CARD_BG, fg=TEXT_DIM, anchor="w").pack(fill="x", padx=32, pady=(0, 4))
+
             divider(self.table)
 
     def _mark_paid(self, pay):
