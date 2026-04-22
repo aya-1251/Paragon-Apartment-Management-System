@@ -57,6 +57,9 @@ All accounts share the password: **`password123`**
 | Username | Role | Location |
 |---|---|---|
 | `admin1` | Administrator | Bristol |
+| `admin2` | Administrator | Cardiff |
+| `admin3` | Administrator | London |
+| `admin4` | Administrator | Manchester |
 | `frontdesk1` | Front Desk | Bristol |
 | `frontdesk2` | Front Desk | Manchester |
 | `frontdesk3` | Front Desk | London |
@@ -116,7 +119,7 @@ All accounts share the password: **`password123`**
 ### TC-07 — Administrator sees only Admin nav items
 1. Log in as `admin1`.
 2. Check the sidebar.
-3. **Expected items visible:** Apartments, Staff Accounts, Manage Apartments, Lease Tracker, Reports.
+3. **Expected items visible:** Apartments, Staff Accounts, Manage Apartments, Lease Tracker, Reports, Data Explorer.
 4. **Expected items NOT visible:** Payments, Create Invoice, Late Payments, Maintenance Jobs, Workers, Job Types (Finance/Maintenance items).
 
 ### TC-08 — Front Desk sees only Front Desk nav items
@@ -136,7 +139,7 @@ All accounts share the password: **`password123`**
 
 ### TC-11 — Manager sees cross-city nav items
 1. Log in as `manager1`.
-2. **Expected items:** Portfolio Overview, Occupancy, Financial Reports, Lease Tracker, Performance, Expand Business.
+2. **Expected items:** Portfolio Overview, Occupancy, Financial Reports, Lease Tracker, Performance, Expand Business, Data Explorer.
 3. The Portfolio Overview shows all four cities. No apartment edit, payment processing, or staff management options visible.
 
 ---
@@ -180,6 +183,21 @@ Log in as `frontdesk1` for these tests.
    - Reference 1 Name: `John Ref`
 3. Click **Register Tenant**.
 4. **Expected:** Success dialog. The new tenant appears in the Tenant Records table.
+
+### TC-15b — Invalid NI number format rejected (NFR-14)
+1. Open **Register Tenant**.
+2. Enter NI Number `INVALID123` (wrong format — must be 2 letters, 6 digits, 1 letter).
+3. Fill all other fields with valid data.
+4. Click **Register Tenant** (or Next on the first step).
+5. **Expected:** Warning dialog — "NI Number must be 2 letters, 6 digits, then 1 letter (e.g. AB123456C)." No record inserted.
+
+### TC-15c — Invalid UK phone number rejected (NFR-14)
+1. Open **Register Tenant**.
+2. Enter a valid NI Number (`AB999998Z`) and fill other fields.
+3. Enter Phone: `12345` (too short / wrong format).
+4. Click **Register Tenant** / Next.
+5. **Expected:** Warning dialog — "Phone must be a valid UK number (e.g. 07700 123456 or +44 7700 123456)." No record inserted.
+6. Retry with `+44 7700 900123` — **Expected:** Accepted and registration proceeds.
 
 ### TC-16 — Duplicate NI number rejected (FR-06)
 1. Open **Register Tenant** again.
@@ -260,22 +278,30 @@ Log in as `admin1`.
 
 *Technique: state-based (lease → Terminated) and cause-effect (termination creates penalty invoice).*
 
-Log in as `admin1`.
+Log in as `frontdesk1` for these tests.
 
 ### TC-26 — Terminate an active lease
-1. Open the apartment detail for an Occupied unit.
-2. In the **Lease & Tenant** tab, click **Terminate Lease**.
-3. Confirm the early termination dialog.
-4. **Expected:** Success dialog showing the 5% penalty amount. Lease status changes to `Terminated`.
+1. Click any Occupied apartment card to open its detail window.
+2. Go to the **Lease & Tenant** tab.
+3. Click **⚠ Early Termination** (visible on the right of the action bar for active leases).
+4. The dialog shows: original end date, monthly rent, 30-day notice period, and the penalty (5% of monthly rent). As you edit the notice date, the Earliest Exit Date updates automatically (notice date + 30 days).
+5. Enter a notice date (e.g., today's date in `YYYY-MM-DD` format) and click **Confirm Termination**.
+6. A confirmation prompt shows the exact notice date, termination date, and penalty amount — click **Yes**.
+7. **Expected:** Success dialog stating lease is terminated and penalty owed. The apartment detail window closes automatically.
 
 ### TC-27 — Apartment reverts to Available after termination (FR-17)
 1. After TC-26, return to the Apartments view.
-2. **Expected:** The apartment from the terminated lease now shows `Available`.
+2. **Expected:** The apartment from the terminated lease now shows status `Available` (green card).
 
 ### TC-28 — Penalty invoice created on termination (FR-17)
-1. After TC-26, log in as `finance1`.
+1. After TC-26, log out and log in as `finance1`.
 2. Click **Payments** and look for the terminated tenant.
-3. **Expected:** A new `Pending` invoice exists with amount = 5% of the tenant's monthly rent.
+3. **Expected:** A new `Pending` invoice exists with amount = 5% of the tenant's monthly rent and notes reading "Early termination penalty (5% of monthly rent)".
+
+### TC-28b — Early Termination button hidden after termination
+1. Log back in as `frontdesk1`.
+2. Open the same apartment (now Available, with no active lease).
+3. **Expected:** No active lease is shown in the Lease & Tenant tab; the **⚠ Early Termination** button is not visible.
 
 ---
 
@@ -495,6 +521,37 @@ Log in as `maint1`, open **Maintenance Jobs**.
 
 ---
 
+## Section 14b — Data Explorer (Admin and Manager)
+
+*Technique: equivalence class — Admin sees location-scoped data; Manager sees all cities.*
+
+### TC-57b — Admin Data Explorer is location-scoped
+1. Log in as `admin1` (Bristol).
+2. Click **Data Explorer** in the sidebar.
+3. Select the `tenants` table from the pill row.
+4. **Expected:** A Treeview loads showing only Bristol tenant records. No Cardiff, London, or Manchester tenants appear.
+
+### TC-57c — Manager Data Explorer shows all cities
+1. Log in as `manager1`.
+2. Click **Data Explorer** in the sidebar.
+3. Select the `leases` table.
+4. **Expected:** Leases from all four cities appear. The table includes a `location_city` or similar column confirming cross-city data.
+
+### TC-57d — Password column is masked
+1. In Data Explorer (admin or manager), select the `staff` table.
+2. **Expected:** The `password_hash` column shows `••••••••` for every row — the real hash is never visible in the UI.
+
+### TC-57e — Row detail panel
+1. In Data Explorer, click any row in the Treeview.
+2. **Expected:** A horizontally scrollable detail panel appears at the bottom showing one card per column, with the column name and value. Status values (Active, Overdue, etc.) are colour-coded.
+
+### TC-57f — Export from Data Explorer
+1. In Data Explorer, select any table and load data.
+2. Click **⬇ CSV**.
+3. **Expected:** A CSV file is created containing the table data. The `password_hash` column contains `••••••••` (not the real hash) in the exported file.
+
+---
+
 ## Section 15 — Manager Cross-City Views (FR-24, FR-25, FR-33, FR-34)
 
 Log in as `manager1`.
@@ -570,10 +627,12 @@ Integration tests verify that **multi-step operations produce consistent state a
 
 ## Section 17 — Non-Functional Requirements
 
-### TC-62 — Password hashing (NFR-02)
-1. After registering any new tenant or staff account, open `property_management.db` in a SQLite viewer (e.g., DB Browser for SQLite).
-2. Inspect the `staff` table `password_hash` column.
-3. **Expected:** The value is a 64-character hexadecimal string (SHA-256 hash), not the plaintext password.
+### TC-62 — Salted password hashing (NFR-02)
+1. After registering any new staff account (TC-50), open `property_management.db` in a SQLite viewer (e.g., DB Browser for SQLite).
+2. Inspect the `staff` table `password_hash` column for the new account.
+3. **Expected:** The value is in `SALT:HASH` format — a 32-character hex salt, a colon, then a 64-character SHA-256 hex hash (total ~97 characters). The plaintext password is never stored.
+4. Create a second staff account with the **same password**. Compare both `password_hash` values.
+5. **Expected:** The two stored values are **different** (unique salt per account) — demonstrating rainbow-table resistance.
 
 ### TC-63 — SQL injection protection (NFR-03)
 1. In the login username field, enter: `' OR '1'='1`.
@@ -604,10 +663,10 @@ After any code change, re-test the relevant sections to confirm existing functio
 | Login / authentication logic | TC-01 – TC-06 |
 | Sidebar / role navigation | TC-07 – TC-11 |
 | Apartment grid and detail | TC-12 – TC-14 |
-| Tenant registration | TC-15 – TC-17 |
+| Tenant registration | TC-15 – TC-17, TC-15b, TC-15c |
 | Apartment creation | TC-18 – TC-21 |
 | Lease creation | TC-22 – TC-25, IT-01 |
-| Lease termination / penalty | TC-26 – TC-28, IT-02 |
+| Lease termination / penalty | TC-26 – TC-28b, IT-02 |
 | Payment processing | TC-29 – TC-35 |
 | Financial reporting | TC-36 – TC-37, IT-03 |
 | Maintenance jobs | TC-38 – TC-43, IT-04 |
@@ -615,9 +674,10 @@ After any code change, re-test the relevant sections to confirm existing functio
 | Complaints | TC-47 – TC-48 |
 | Staff management | TC-49 – TC-52 |
 | CSV / PDF export | TC-53 – TC-57 |
+| Data Explorer | TC-57b – TC-57f |
 | Manager cross-city views | TC-58 – TC-61 |
 | Database schema changes | IT-01 – IT-04 + TC-62 |
 
 ---
 
-*Testing Guide — PAMS Group 17 — Updated 2026-04-20*
+*Testing Guide — PAMS Group 17 — Updated 2026-04-22*

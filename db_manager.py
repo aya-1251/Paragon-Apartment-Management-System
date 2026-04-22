@@ -1705,6 +1705,17 @@ class DatabaseManager:
                    status                      = 'Terminated'
              WHERE id = ?
         """, (notice_date, termination_date, lease_id))
+        # FR-17: create a Pending penalty invoice (5% of monthly rent)
+        cursor.execute("SELECT monthly_rent FROM leases WHERE id=?", (lease_id,))
+        row = cursor.fetchone()
+        if row:
+            penalty = round(row["monthly_rent"] * 0.05, 2)
+            cursor.execute("""
+                INSERT INTO payments
+                    (lease_id, amount_due, amount_paid, due_date, status, notes)
+                VALUES (?, ?, 0, ?, 'Pending',
+                        'Early termination penalty (5% of monthly rent)')
+            """, (lease_id, penalty, termination_date))
         self.commit()
         self.update_apartment_status(apartment_id, ApartmentStatus.AVAILABLE.value)
 

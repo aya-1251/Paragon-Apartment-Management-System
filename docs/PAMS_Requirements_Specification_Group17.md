@@ -100,7 +100,7 @@ The table below lists all functional requirements derived from the case study br
     <tr>
       <td>FR-01</td>
       <td>Authentication</td>
-      <td>System shall validate username and password (SHA-256 hashed) against the staff table on login.</td>
+      <td>System shall validate username and password (salted SHA-256) against the staff table on login. Passwords are stored in SALT:HASH format; each account has a unique random salt.</td>
     </tr>
     <tr>
       <td>FR-02</td>
@@ -175,7 +175,7 @@ The table below lists all functional requirements derived from the case study br
     <tr>
       <td>FR-16</td>
       <td>Early Termination</td>
-      <td>A tenant may leave before contract end: 1 month notice required; penalty = 5% of monthly rent.</td>
+      <td>A tenant may leave before contract end: 1 month (30 days) notice required; penalty = 5% of monthly rent. Front Desk staff initiate the request via the Early Termination dialog on the Lease &amp; Tenant tab.</td>
     </tr>
     <tr>
       <td>FR-17</td>
@@ -310,7 +310,7 @@ The table below defines the non-functional requirements governing system quality
     <tr>
       <td>NFR-02</td>
       <td>Security</td>
-      <td>Passwords shall be stored as SHA-256 hashes; plaintext passwords are never persisted in the database.</td>
+      <td>Passwords shall be stored as salted SHA-256 hashes in SALT:HASH format. Each account receives a unique 16-byte random salt so that identical passwords produce different stored values, defeating rainbow-table attacks. Plaintext passwords are never persisted.</td>
     </tr>
     <tr>
       <td>NFR-03</td>
@@ -346,6 +346,11 @@ The table below defines the non-functional requirements governing system quality
       <td>NFR-09</td>
       <td>Reliability</td>
       <td>All form inputs shall be validated before any database operations are performed; invalid data shall never reach the database.</td>
+    </tr>
+    <tr>
+      <td>NFR-14</td>
+      <td>Reliability</td>
+      <td>NI numbers shall match the UK format: 2 uppercase letters, 6 digits, 1 uppercase letter (regex: [A-Z]{2}\d{6}[A-Z]). UK phone numbers shall match: leading 0 or +44 followed by 9–10 digits, with spaces and hyphens permitted. Both are validated in the Register Tenant wizard before any database write.</td>
     </tr>
     <tr>
       <td>NFR-10</td>
@@ -422,8 +427,13 @@ The requirements in this document map directly to the use case diagram (FR-01 to
     </tr>
     <tr>
       <td>Lease Management</td>
-      <td>FR-13, FR-14, FR-15, FR-16, FR-17</td>
+      <td>FR-13, FR-14, FR-15</td>
       <td>Administrator</td>
+    </tr>
+    <tr>
+      <td>Early Termination</td>
+      <td>FR-16, FR-17</td>
+      <td>Front Desk</td>
     </tr>
     <tr>
       <td>Payments &amp; Billing</td>
@@ -480,6 +490,12 @@ The requirements in this document map directly to the use case diagram (FR-01 to
       <td>20 April 2026</td>
       <td>Group 17</td>
       <td>Initial draft — full requirements for the final version, aligned with implemented system.</td>
+    </tr>
+    <tr>
+      <td>1.1</td>
+      <td>22 April 2026</td>
+      <td>Group 17</td>
+      <td>Updated FR-01 and NFR-02 for salted SHA-256; updated FR-16 to specify Front Desk role; added NFR-14 for NI/phone input validation; updated traceability table to separate Early Termination as its own row.</td>
     </tr>
   </tbody>
 </table>
