@@ -627,7 +627,6 @@ class AppShell(BaseAppShell):
             ("tenant_records", "📋  Tenant Records",       "tenant_records"),
             ("log_complaint",  "💬  Log Complaint",        "log_complaint"),
             ("log_maint",      "🔧  Log Maintenance",      "log_maint"),
-            ("maint_requests", "🛠  Maintenance Requests", "maint_requests"),
         ]:
             row = tk.Frame(sb, bg=PANEL_BG)
             row.pack(fill="x")
@@ -666,10 +665,7 @@ class AppShell(BaseAppShell):
         elif dest == "log_maint":
             from views.views_maintenance import AddRequestView
             AddRequestView(self.content, self.staff, self.db,
-                           on_complete=lambda: self._nav("maint_requests", "maint_requests"))
-        elif dest == "maint_requests":
-            from views.views_maintenance import RequestsView
-            RequestsView(self.content, self.staff, self.db)
+                           on_complete=lambda: self._nav("commune", "commune"))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -937,9 +933,9 @@ class ApartmentDetailWindow(tk.Toplevel):
                 mkbtn(ar, "Send Payment Request",
                       lambda: PaymentRequestDialog(self, l, self.staff, self.db), small=True).pack(side="left")
                 if not l.early_termination_requested:
-                    mkbtn(ar, "⚠  Early Termination",
+                    mkbtn(ar, "⚠  Terminate Tenancy",
                           lambda lease=l: EarlyTerminationDialog(
-                              self, lease, self.db, on_save=self.destroy
+                              self, lease, self.staff, self.db, on_save=self.destroy
                           ),
                           color=DANGER, small=True).pack(side="right")
 
@@ -1677,23 +1673,35 @@ class PaymentRequestDialog(tk.Toplevel):
 #  EARLY TERMINATION DIALOG
 # ══════════════════════════════════════════════════════════════════════════════
 class EarlyTerminationDialog(tk.Toplevel):
-    def __init__(self, parent, lease: Lease, db, on_save=None):
+    def __init__(self, parent, lease: Lease, staff, db, on_save=None):
         super().__init__(parent)
         self.lease = lease
+        self.staff = staff
         self.db = db
         self.on_save = on_save
-        self.title("Request Early Termination")
-        self.geometry("500x420")
+        self.title("Early Termination")
+        self.geometry("520x480")
         self.configure(bg=DARK_BG)
         self.resizable(False, False)
         self.grab_set()
         self._build()
 
+    @staticmethod
+    def _end_of_next_month(from_date: date) -> date:
+        """Return the last day of the month after from_date."""
+        import calendar
+        if from_date.month == 12:
+            year, month = from_date.year + 1, 1
+        else:
+            year, month = from_date.year, from_date.month + 1
+        last_day = calendar.monthrange(year, month)[1]
+        return date(year, month, last_day)
+
     def _build(self):
         # Header
         hdr = tk.Frame(self, bg=DANGER, padx=24, pady=14)
         hdr.pack(fill="x")
-        tk.Label(hdr, text="⚠  Request Early Termination", font=FONT_TITLE,
+        tk.Label(hdr, text="⚠  Terminate Tenancy", font=FONT_TITLE,
                  bg=DANGER, fg="white").pack(anchor="w")
         tk.Label(hdr, text=f"{self.lease.tenant_name}  •  Unit {self.lease.apartment_unit}",
                  font=FONT_SMALL, bg=DANGER, fg="#FECACA").pack(anchor="w")
@@ -1701,82 +1709,84 @@ class EarlyTerminationDialog(tk.Toplevel):
         body = tk.Frame(self, bg=CARD_BG, padx=28, pady=20)
         body.pack(fill="both", expand=True)
 
-        # Lease summary
+        # Computed values
         penalty = self.lease.early_termination_penalty()
-        earliest_exit = date.today() + timedelta(days=self.lease.REQUIRED_NOTICE_DAYS)
+        termination_date = self._end_of_next_month(date.today())
 
         info_grid(body, [
-            ("Original End Date", self.lease.end_date or "—"),
-            ("Monthly Rent",      f"£{self.lease.monthly_rent:,.2f}"),
-            ("Notice Period",     f"{self.lease.REQUIRED_NOTICE_DAYS} days"),
-            ("Penalty (5%)",      f"£{penalty:,.2f}"),
+            ("Original End Date",  self.lease.end_date or "—"),
+            ("Monthly Rent",       f"£{self.lease.monthly_rent:,.2f}"),
+            ("Termination Date",   str(termination_date)),
+            ("Penalty Due (5%)",   f"£{penalty:,.2f}"),
         ], cols=2)
 
         # Policy note
         note = tk.Frame(body, bg="#FEF3C7", padx=14, pady=10)
         note.pack(fill="x", pady=(12, 16))
-        tk.Label(note, text="Policy: tenant must give 30 days' notice and pay a penalty of\n"
-                             f"5% of monthly rent (£{penalty:,.2f}) upon early exit.",
+        tk.Label(note,
+                 text=(f"The lease will be marked as ending on {termination_date} "
+                       f"(end of next month).\nA payment request for the early termination "
+                       f"penalty of £{penalty:,.2f} will be sent\nto {self.lease.tenant_email or 'the tenant'} automatically."),
                  font=FONT_SMALL, bg="#FEF3C7", fg=WARNING, justify="left").pack(anchor="w")
 
-        # Notice date entry
+        # Optional notes field
         body.columnconfigure(0, weight=1)
-        body.columnconfigure(1, weight=1)
-        self.v_notice = entry_var(body, "Notice Given Date *", 3, 0,
-                                  str(date.today()), placeholder="YYYY-MM-DD")
-        self.v_notice.trace_add("write", self._update_exit_date)
-
-        # Earliest exit date (auto-computed, read-only display)
-        tk.Label(body, text="Earliest Exit Date", font=FONT_SMALL,
-                 bg=CARD_BG, fg=TEXT_DIM).grid(row=3, column=1, sticky="w", padx=6, pady=(8, 2))
-        self._exit_var = tk.StringVar(value=str(earliest_exit))
-        exit_lbl = tk.Label(body, textvariable=self._exit_var,
-                             font=FONT_SUB, bg=CARD_BG, fg=DANGER)
-        exit_lbl.grid(row=4, column=1, sticky="w", padx=6)
+        tk.Label(body, text="Notes (optional)", font=FONT_SMALL,
+                 bg=CARD_BG, fg=TEXT_DIM).pack(anchor="w", padx=6, pady=(8, 2))
+        self._notes = tk.Text(body, font=FONT_BODY, bg=PANEL_BG, fg=TEXT,
+                              insertbackground=TEXT, relief="flat", bd=0,
+                              width=52, height=3,
+                              highlightthickness=1, highlightcolor=ACCENT,
+                              highlightbackground=BORDER)
+        self._notes.pack(fill="x", padx=6)
 
         # Buttons
         nav = tk.Frame(body, bg=CARD_BG, pady=18)
-        nav.grid(row=5, column=0, columnspan=2, sticky="ew")
+        nav.pack(fill="x")
         mkbtn(nav, "Cancel", self.destroy, color=TEXT_MUTED).pack(side="left")
-        mkbtn(nav, "Confirm Termination", self._confirm, color=DANGER).pack(side="right")
-
-    def _update_exit_date(self, *_):
-        try:
-            nd = date.fromisoformat(self.v_notice.get().strip())
-            self._exit_var.set(str(nd + timedelta(days=self.lease.REQUIRED_NOTICE_DAYS)))
-        except ValueError:
-            self._exit_var.set("—")
+        mkbtn(nav, "Confirm & Send Payment Request", self._confirm,
+              color=DANGER).pack(side="right")
 
     def _confirm(self):
-        notice_str = self.v_notice.get().strip()
-        try:
-            notice_date = date.fromisoformat(notice_str)
-        except ValueError:
-            messagebox.showwarning("Invalid Date",
-                                   "Enter notice date as YYYY-MM-DD.", parent=self)
-            return
-        termination_date = notice_date + timedelta(days=self.lease.REQUIRED_NOTICE_DAYS)
         penalty = self.lease.early_termination_penalty()
+        termination_date = self._end_of_next_month(date.today())
+        notes_text = self._notes.get("1.0", "end-1c").strip()
+
         confirm = messagebox.askyesno(
-            "Confirm Early Termination",
-            f"This will terminate the lease for {self.lease.tenant_name}.\n\n"
-            f"  Notice date:      {notice_date}\n"
-            f"  Termination date: {termination_date}\n"
-            f"  Penalty owed:     £{penalty:,.2f}\n\n"
+            "Confirm Termination",
+            f"This will:\n\n"
+            f"  1. Mark the lease as terminating on {termination_date}\n"
+            f"  2. Send a payment request of £{penalty:,.2f} to {self.lease.tenant_email or 'the tenant'}\n\n"
+            f"Tenant: {self.lease.tenant_name}\nUnit: {self.lease.apartment_unit}\n\n"
             "Proceed?",
             parent=self,
         )
         if not confirm:
             return
+
+        # Record early termination in DB (sets end date + flags lease)
         self.db.request_early_termination(
             self.lease.id, self.lease.apartment_id,
-            str(notice_date), str(termination_date),
+            str(date.today()), str(termination_date),
         )
+
+        # Create the penalty payment request immediately
+        payment_notes = f"Early termination penalty (5% of monthly rent)."
+        if notes_text:
+            payment_notes += f" Notes: {notes_text}"
+        self.db.create_payment_request(
+            Payment(
+                lease_id=self.lease.id,
+                amount_due=penalty,
+                due_date=str(termination_date),
+                notes=payment_notes,
+            )
+        )
+
         messagebox.showinfo(
-            "Termination Recorded",
-            f"Early termination recorded.\n"
-            f"Lease ends: {termination_date}\n"
-            f"Penalty due: £{penalty:,.2f}",
+            "Termination Confirmed",
+            f"✓ Lease termination recorded. Ends: {termination_date}\n"
+            f"✓ Payment request of £{penalty:,.2f} sent to {self.lease.tenant_email or 'tenant'}.",
             parent=self,
         )
         if self.on_save:

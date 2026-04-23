@@ -841,12 +841,173 @@ class ExpandView(tk.Frame):
 #  MANAGER STAFF VIEW — read-only view of all staff across all cities
 # ══════════════════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════════════════
+#  MANAGER STAFF VIEW — full edit/reset/deactivate across all cities
+# ══════════════════════════════════════════════════════════════════
+
+class _StaffEditDialog(tk.Toplevel):
+    """Modal dialog to edit a staff member's name, email, phone and role.
+
+    caller_role: the role of the logged-in staff performing the action.
+    Administrators are not permitted to edit Manager accounts.
+    """
+    def __init__(self, parent, staff_member, db, on_save=None, caller_role=""):
+        super().__init__(parent)
+        # ── Access guard ──────────────────────────────────────────────
+        if caller_role == "Administrator" and staff_member.role == "Manager":
+            self.destroy()
+            messagebox.showerror(
+                "Access Denied",
+                "Administrators cannot edit Manager accounts.\n"
+                "Please contact the Manager directly.",
+                parent=parent,
+            )
+            return
+        # ─────────────────────────────────────────────────────────────
+        self.sm = staff_member
+        self.db = db
+        self.on_save = on_save
+        self.title(f"Edit Staff — {staff_member.full_name}")
+        self.geometry("480x420")
+        self.configure(bg=DARK_BG)
+        self.resizable(False, False)
+        self.grab_set()
+        self._build()
+
+    def _build(self):
+        hdr = tk.Frame(self, bg=ACCENT2, padx=24, pady=14)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="✏  Edit Staff Account", font=FONT_TITLE,
+                 bg=ACCENT2, fg="white").pack(anchor="w")
+        tk.Label(hdr, text=f"@{self.sm.username}  •  {self.sm.role}",
+                 font=FONT_SMALL, bg=ACCENT2, fg="#EDE9FE").pack(anchor="w")
+
+        form = tk.Frame(self, bg=CARD_BG, padx=28, pady=20)
+        form.pack(fill="both", expand=True)
+        form.columnconfigure(0, weight=1)
+        form.columnconfigure(1, weight=1)
+
+        fn = getattr(self.sm, "first_name", "") or self.sm.full_name.split()[0]
+        ln = getattr(self.sm, "last_name",  "") or (self.sm.full_name.split()[1] if " " in self.sm.full_name else "")
+        self.v_fn   = entry_var(form, "First Name *", 0, 0, default=fn)
+        self.v_ln   = entry_var(form, "Last Name *",  0, 1, default=ln)
+        self.v_em   = entry_var(form, "Email",        2, 0, default=self.sm.email or "", colspan=2, width=40)
+        self.v_ph   = entry_var(form, "Phone",        4, 0, default=getattr(self.sm, "phone", "") or "")
+
+        ROLES = ["Front Desk", "Finance Manager", "Administrator", "Maintenance"]
+        self.v_role = combo_var(form, "Role *", ROLES, 4, 1,
+                                default=self.sm.role if self.sm.role in ROLES else ROLES[0])
+
+        nav = tk.Frame(form, bg=CARD_BG, pady=16)
+        nav.grid(row=6, column=0, columnspan=2, sticky="ew")
+        mkbtn(nav, "Cancel", self.destroy, color=TEXT_MUTED).pack(side="left")
+        mkbtn(nav, "Save Changes ✓", self._save, color=ACCENT2).pack(side="right")
+
+    def _save(self):
+        fn = self.v_fn.get().strip()
+        ln = self.v_ln.get().strip()
+        if not fn or not ln:
+            messagebox.showwarning("Missing", "First and last name are required.", parent=self)
+            return
+        self.db.update_staff(
+            self.sm.id, fn, ln,
+            self.v_role.get(),
+            self.v_em.get().strip(),
+            getattr(self, "v_ph", None) and self.v_ph.get().strip() or "",
+        )
+        messagebox.showinfo("Saved ✓", f"{fn} {ln}'s account has been updated.", parent=self)
+        if self.on_save:
+            self.on_save()
+        self.destroy()
+
+
+class _StaffResetDialog(tk.Toplevel):
+    """Modal dialog to reset a staff member's password.
+
+    caller_role: the role of the logged-in staff performing the action.
+    Administrators are not permitted to reset Manager passwords.
+    """
+    def __init__(self, parent, staff_member, db, on_save=None, caller_role=""):
+        super().__init__(parent)
+        # ── Access guard ──────────────────────────────────────────────
+        if caller_role == "Administrator" and staff_member.role == "Manager":
+            self.destroy()
+            messagebox.showerror(
+                "Access Denied",
+                "Administrators cannot reset a Manager's password.\n"
+                "Please contact the Manager directly.",
+                parent=parent,
+            )
+            return
+        # ─────────────────────────────────────────────────────────────
+        self.sm = staff_member
+        self.db = db
+        self.on_save = on_save
+        self.title(f"Reset Password — {staff_member.full_name}")
+        self.geometry("420x260")
+        self.configure(bg=DARK_BG)
+        self.resizable(False, False)
+        self.grab_set()
+        self._build()
+
+    def _build(self):
+        hdr = tk.Frame(self, bg=WARNING, padx=24, pady=14)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="🔑  Reset Password", font=FONT_TITLE,
+                 bg=WARNING, fg="white").pack(anchor="w")
+        tk.Label(hdr, text=f"{self.sm.full_name}  •  @{self.sm.username}",
+                 font=FONT_SMALL, bg=WARNING, fg="#FEF3C7").pack(anchor="w")
+
+        form = tk.Frame(self, bg=CARD_BG, padx=28, pady=20)
+        form.pack(fill="both", expand=True)
+
+        tk.Label(form, text="New Password *", font=FONT_SMALL,
+                 bg=CARD_BG, fg=TEXT_DIM).pack(anchor="w")
+        self._pw = tk.Entry(form, font=FONT_BODY, bg=PANEL_BG, fg=TEXT,
+                            show="●", insertbackground=TEXT, relief="flat", bd=0,
+                            highlightthickness=1, highlightcolor=ACCENT,
+                            highlightbackground=BORDER)
+        self._pw.pack(fill="x", pady=(4, 12), ipady=5)
+
+        tk.Label(form, text="Confirm Password *", font=FONT_SMALL,
+                 bg=CARD_BG, fg=TEXT_DIM).pack(anchor="w")
+        self._pw2 = tk.Entry(form, font=FONT_BODY, bg=PANEL_BG, fg=TEXT,
+                             show="●", insertbackground=TEXT, relief="flat", bd=0,
+                             highlightthickness=1, highlightcolor=ACCENT,
+                             highlightbackground=BORDER)
+        self._pw2.pack(fill="x", pady=(4, 16), ipady=5)
+
+        nav = tk.Frame(form, bg=CARD_BG)
+        nav.pack(fill="x")
+        mkbtn(nav, "Cancel", self.destroy, color=TEXT_MUTED).pack(side="left")
+        mkbtn(nav, "Reset Password ✓", self._reset, color=WARNING).pack(side="right")
+
+    def _reset(self):
+        pw  = self._pw.get()
+        pw2 = self._pw2.get()
+        if len(pw) < 6:
+            messagebox.showwarning("Too Short", "Password must be at least 6 characters.", parent=self)
+            return
+        if pw != pw2:
+            messagebox.showwarning("Mismatch", "Passwords do not match.", parent=self)
+            return
+        self.db.reset_staff_password(self.sm.id, pw)
+        messagebox.showinfo("Done ✓", f"Password reset for {self.sm.full_name}.", parent=self)
+        if self.on_save:
+            self.on_save()
+        self.destroy()
+
+
 class ManagerStaffView(tk.Frame):
+    """Full staff management for Manager — edit / reset password / deactivate
+    across ALL cities."""
+
     def __init__(self, parent, staff, db):
         super().__init__(parent, bg=DARK_BG)
         self.staff = staff
         self.db = db
         self._staff_list = []
+        self._shown = []
         self.pack(fill="both", expand=True)
         self._build()
         self._load()
@@ -854,27 +1015,56 @@ class ManagerStaffView(tk.Frame):
     def _get_export_data(self):
         cols = ["ID", "Name", "Username", "Role", "City", "Email", "Phone", "Active"]
         rows = [(s.id, s.full_name, s.username, s.role, getattr(s, "city", ""),
-                 s.email or "", s.phone or "", "Yes" if s.is_active else "No")
-                for s in self._staff_list]
+                 s.email or "", getattr(s, "phone", "") or "", "Yes" if s.is_active else "No")
+                for s in self._shown]
         return cols, rows
 
     def _build(self):
         hdr = tk.Frame(self, bg=DARK_BG, padx=28, pady=20)
         hdr.pack(fill="x")
         tk.Label(hdr, text="Staff Accounts", font=FONT_HEAD, bg=DARK_BG, fg=TEXT).pack(anchor="w")
-        tk.Label(hdr, text="All staff across every location — read-only overview.",
+        tk.Label(hdr, text="Manage all staff across every location — edit, reset passwords and deactivate accounts.",
                  font=FONT_BODY, bg=DARK_BG, fg=TEXT_DIM).pack(anchor="w")
 
         bar = tk.Frame(self, bg=DARK_BG)
         bar.pack(fill="x", padx=28, pady=(0, 8))
-        export_bar(bar, "All_Staff", self._get_export_data).pack(side="left")
+
+        # Search
+        self._q = tk.StringVar()
+        self._q.trace_add("write", lambda *_: self._filter())
+        srch = tk.Entry(bar, textvariable=self._q, font=FONT_BODY, bg=PANEL_BG, fg=TEXT,
+                        insertbackground=TEXT, relief="flat", bd=0, width=32,
+                        highlightthickness=1, highlightcolor=ACCENT, highlightbackground=BORDER)
+        srch.pack(side="left", ipady=5, padx=(0, 12))
+        _ph = "Search name, username, role…"
+        srch.insert(0, _ph); srch.config(fg=TEXT_MUTED)
+        srch.bind("<FocusIn>",  lambda e: (srch.delete(0,"end"), srch.config(fg=TEXT)) if srch.get()==_ph else None)
+        srch.bind("<FocusOut>", lambda e: (srch.insert(0,_ph), srch.config(fg=TEXT_MUTED)) if not srch.get() else None)
+
+        export_bar(bar, "All_Staff", self._get_export_data).pack(side="right")
 
         outer, self.table = scrollable(self, DARK_BG)
         outer.pack(fill="both", expand=True)
 
     def _load(self):
-        for w in self.table.winfo_children(): w.destroy()
         self._staff_list = self.db.get_all_staff()
+        self._shown = list(self._staff_list)
+        self._render()
+
+    def _filter(self):
+        q = self._q.get().strip().lower()
+        placeholder = "search name, username, role…"
+        if not q or q == placeholder:
+            self._shown = list(self._staff_list)
+        else:
+            self._shown = [s for s in self._staff_list
+                           if q in s.full_name.lower() or q in s.username.lower()
+                           or q in s.role.lower() or q in (getattr(s, "city", "") or "").lower()]
+        self._render()
+
+    def _render(self):
+        for w in self.table.winfo_children():
+            w.destroy()
 
         # Summary pills by role
         pills = tk.Frame(self.table, bg=DARK_BG)
@@ -888,12 +1078,12 @@ class ManagerStaffView(tk.Frame):
                      bg=CARD_BG, fg=ACCENT2).pack()
             tk.Label(p, text=role, font=FONT_SMALL, bg=CARD_BG, fg=TEXT_DIM).pack()
 
-        COLS = [("ID", 4), ("Name", 18), ("Username", 14), ("Role", 18),
-                ("City", 14), ("Email", 22), ("Active", 7)]
-        col_headers(self.table, COLS)
+        COLS = [("ID", 4), ("Name", 16), ("Username", 12), ("Role", 16),
+                ("City", 12), ("Email", 20), ("Active", 6), ("Actions", 28)]
+        _mgr_col_headers(self.table, COLS)
 
         current_city = None
-        for s in self._staff_list:
+        for s in self._shown:
             city = getattr(s, "city", "") or "—"
             if city != current_city:
                 current_city = city
@@ -902,14 +1092,54 @@ class ManagerStaffView(tk.Frame):
                 tk.Label(sec, text=f"📍  {city}", font=FONT_SUB,
                          bg=DARK_BG, fg=TEXT).pack(side="left")
 
-            row = tk.Frame(self.table, bg=CARD_BG)
+            row_bg = CARD_BG
+            row = tk.Frame(self.table, bg=row_bg)
             row.pack(fill="x", padx=24)
+
             active_col = SUCCESS if s.is_active else DANGER
-            active_txt = "✓ Yes" if s.is_active else "✗ No"
-            for val, w in [(str(s.id), 4), (s.full_name, 18), (s.username, 14),
-                           (s.role, 18), (city, 14), (s.email or "—", 22)]:
-                tk.Label(row, text=val, font=FONT_BODY, bg=CARD_BG, fg=TEXT,
+            active_txt = "✓" if s.is_active else "✗"
+            for val, w in [(str(s.id), 4), (s.full_name, 16), (s.username, 12),
+                           (s.role, 16), (city, 12), (s.email or "—", 20)]:
+                tk.Label(row, text=val, font=FONT_BODY, bg=row_bg, fg=TEXT,
                          width=w, anchor="w").pack(side="left", padx=4, pady=6)
-            tk.Label(row, text=active_txt, font=FONT_BODY, bg=CARD_BG,
-                     fg=active_col, width=7, anchor="w").pack(side="left", padx=4)
-            divider(self.table)
+            tk.Label(row, text=active_txt, font=FONT_BODY, bg=row_bg,
+                     fg=active_col, width=6, anchor="w").pack(side="left", padx=4)
+
+            # Action buttons
+            act = tk.Frame(row, bg=row_bg)
+            act.pack(side="left", padx=4)
+
+            caller_role = self.staff.role
+            mkbtn(act, "Edit",
+                  lambda sm=s: _StaffEditDialog(
+                      self, sm, self.db, on_save=self._load, caller_role=caller_role),
+                  color=ACCENT2, small=True).pack(side="left", padx=(0, 4))
+            mkbtn(act, "Reset PW",
+                  lambda sm=s: _StaffResetDialog(
+                      self, sm, self.db, on_save=self._load, caller_role=caller_role),
+                  color=WARNING, small=True).pack(side="left", padx=(0, 4))
+
+            toggle_label = "Deactivate" if s.is_active else "Activate"
+            toggle_color  = DANGER if s.is_active else SUCCESS
+            mkbtn(act, toggle_label,
+                  lambda sm=s: self._toggle(sm),
+                  color=toggle_color, small=True).pack(side="left")
+
+            tk.Frame(self.table, bg=BORDER, height=1).pack(fill="x", padx=24)
+
+    def _toggle(self, staff_member):
+        action = "deactivate" if staff_member.is_active else "activate"
+        if messagebox.askyesno("Confirm",
+                               f"Are you sure you want to {action} {staff_member.full_name}?",
+                               parent=self):
+            self.db.toggle_staff_active(staff_member.id)
+            self._load()
+
+
+def _mgr_col_headers(parent, cols, bg=HOVER_BG):
+    row = tk.Frame(parent, bg=bg)
+    row.pack(fill="x", padx=24, pady=(4, 0))
+    for label, w in cols:
+        tk.Label(row, text=label, font=("Segoe UI", 9, "bold"), bg=bg, fg=TEXT,
+                 width=w, anchor="w").pack(side="left", padx=4, pady=8)
+    tk.Frame(parent, bg=BORDER, height=1).pack(fill="x", padx=24)

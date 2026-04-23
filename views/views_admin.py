@@ -307,16 +307,22 @@ class StaffView(tk.Frame):
                      width=7, anchor="w").pack(side="left", padx=4)
             act = tk.Frame(row, bg=CARD_BG)
             act.pack(side="left", padx=4)
-            mkbtn(act, "Edit",
-                  lambda s=s: StaffDialog(self, self.staff, self.db, edit_staff=s, on_save=self._load),
-                  small=True).pack(side="left", padx=(0, 4))
-            toggle_txt = "Deactivate" if s.is_active else "Activate"
-            toggle_col = WARNING if s.is_active else SUCCESS
-            if s.id != self.staff.id and s.role != "Manager":
-                mkbtn(act, toggle_txt, lambda sid=s.id: self._toggle(sid),
-                      color=toggle_col, small=True).pack(side="left", padx=(0, 4))
-            mkbtn(act, "Reset PW", lambda sid=s.id: self._reset_pw(sid),
-                  color=ACCENT2, small=True).pack(side="left")
+            is_manager = s.role == "Manager"
+            if is_manager:
+                # Admins cannot edit or reset Manager accounts
+                tk.Label(act, text="Manager — no access", font=FONT_SMALL,
+                         bg=CARD_BG, fg=TEXT_MUTED).pack(side="left", padx=4)
+            else:
+                mkbtn(act, "Edit",
+                      lambda s=s: StaffDialog(self, self.staff, self.db, edit_staff=s, on_save=self._load),
+                      small=True).pack(side="left", padx=(0, 4))
+                toggle_txt = "Deactivate" if s.is_active else "Activate"
+                toggle_col = WARNING if s.is_active else SUCCESS
+                if s.id != self.staff.id:
+                    mkbtn(act, toggle_txt, lambda sid=s.id: self._toggle(sid),
+                          color=toggle_col, small=True).pack(side="left", padx=(0, 4))
+                mkbtn(act, "Reset PW", lambda sid=s.id: self._reset_pw(sid),
+                      color=ACCENT2, small=True).pack(side="left")
             divider(self.table)
 
     def _toggle(self, staff_id):
