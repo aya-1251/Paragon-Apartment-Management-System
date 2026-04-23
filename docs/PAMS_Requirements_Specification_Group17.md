@@ -1,5 +1,3 @@
-PAMS — Requirements Specification | Module: UFCF8S-30-2 | Group 17
-
 # PAMS
 
 ## Paragon Apartment Management System
