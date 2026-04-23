@@ -601,7 +601,7 @@ class RequestDetailWindow(tk.Toplevel):
             sp = sp.strip()
             if sp:
                 col = SUCCESS if sp == self.req.category else TEXT_MUTED
-                tk.Label(top, text=f" {sp} ", font=FONT_SMALL, bg=col+"22", fg=col).pack(side="left", padx=2)
+                tk.Label(top, text=f" {sp} ", font=FONT_SMALL, bg=col, fg=col).pack(side="left", padx=2)
         tk.Label(info, text=f"📞 {w.phone}  •  £{w.hourly_rate:.0f}/hr  •  {w.notes or ''}",
                  font=FONT_SMALL, bg=bg, fg=TEXT_DIM).pack(anchor="w")
         def click(e=None, wid=w.id):
