@@ -400,7 +400,7 @@ The requirements in this document map directly to the use case diagram (FR-01 to
     <tr>
       <td>Tenant Management</td>
       <td>FR-05, FR-06, FR-07, FR-08</td>
-      <td>Front Desk, Administrator</td>
+      <td>Front Desk</td>
     </tr>
     <tr>
       <td>Apartment Management</td>
@@ -410,7 +410,7 @@ The requirements in this document map directly to the use case diagram (FR-01 to
     <tr>
       <td>Lease Management</td>
       <td>FR-13, FR-14, FR-15</td>
-      <td>Administrator</td>
+      <td>Front Desk</td>
     </tr>
     <tr>
       <td>Early Termination</td>
@@ -425,7 +425,7 @@ The requirements in this document map directly to the use case diagram (FR-01 to
     <tr>
       <td>Reporting</td>
       <td>FR-23, FR-24, FR-25</td>
-      <td>Finance Manager, Manager</td>
+      <td>Finance Manager, Manager, Administator</td>
     </tr>
     <tr>
       <td>Maintenance</td>
@@ -440,7 +440,7 @@ The requirements in this document map directly to the use case diagram (FR-01 to
     <tr>
       <td>Multi-City Operations</td>
       <td>FR-33, FR-34</td>
-      <td>Manager, Administrator</td>
+      <td>Manager</td>
     </tr>
     <tr>
       <td>Export</td>
@@ -450,7 +450,7 @@ The requirements in this document map directly to the use case diagram (FR-01 to
     <tr>
       <td>Staff Management</td>
       <td>FR-37</td>
-      <td>Administrator</td>
+      <td>Administrator, Management</td>
     </tr>
   </tbody>
 </table>
