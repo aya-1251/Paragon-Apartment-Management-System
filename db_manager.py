@@ -1832,7 +1832,7 @@ class DatabaseManager:
 
         columns = list(rows[0].keys())
         result = [
-            tuple("••••••••" if col in _MASKED else row[col] for col in columns)
+            tuple("********" if col in _MASKED else row[col] for col in columns)
             for row in rows
         ]
         return columns, result
