@@ -1,549 +1,521 @@
 """
-Unit tests for models.py — PAMS Group 17
-Module: UFCF8S-30-2 Advanced Software Development
+test_models.py
+Unit tests for every model class in models.py.
 
-Tests all dataclasses and Enum types without touching the database.
-Technique: black-box equivalence class + boundary value analysis.
-
-Run from project root:
-    pytest tests/test_models.py -v
+Covers:
+  - Default field values and dataclass construction
+  - Property methods (full_name, display_name, annual_rent …)
+  - Business-logic methods (is_available, is_overdue, early_termination_penalty …)
+  - Edge-case / bad-data resilience (missing dates, zero amounts, empty strings)
+  - Enum values match what the rest of the system expects
 """
-import pytest
+
+import unittest
+from datetime import date, timedelta
 from models import (
-    LeaseStatus, ApartmentStatus, MaintenanceStatus, MaintenancePriority,
-    ComplaintStatus, PaymentStatus,
     Location, Apartment, Tenant, Lease, Payment,
     MaintenanceRequest, Complaint, Staff,
+    LeaseStatus, ApartmentStatus, MaintenanceStatus,
+    MaintenancePriority, ComplaintStatus, PaymentStatus,
 )
 
 
-# =============================================================================
-# 1. Enum correctness
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+#  Helpers
+# ─────────────────────────────────────────────────────────────────────────────
 
-class TestLeaseStatusEnum:
-    def test_active_value(self):
-        assert LeaseStatus.ACTIVE.value == "Active"
+def _future(days=30) -> str:
+    return str(date.today() + timedelta(days=days))
 
-    def test_pending_value(self):
-        assert LeaseStatus.PENDING.value == "Pending"
-
-    def test_terminated_value(self):
-        assert LeaseStatus.TERMINATED.value == "Terminated"
-
-    def test_expired_value(self):
-        assert LeaseStatus.EXPIRED.value == "Expired"
-
-    def test_invalid_value_raises(self):
-        with pytest.raises(ValueError):
-            LeaseStatus("NotAStatus")
-
-    def test_member_count(self):
-        assert len(LeaseStatus) == 4
+def _past(days=30) -> str:
+    return str(date.today() - timedelta(days=days))
 
 
-class TestApartmentStatusEnum:
-    def test_available_value(self):
-        assert ApartmentStatus.AVAILABLE.value == "Available"
+# ─────────────────────────────────────────────────────────────────────────────
+#  Enum Tests
+# ─────────────────────────────────────────────────────────────────────────────
 
-    def test_occupied_value(self):
-        assert ApartmentStatus.OCCUPIED.value == "Occupied"
+class TestEnums(unittest.TestCase):
+    """Ensure enum string values are exactly what the DB and UI expect."""
 
-    def test_maintenance_value(self):
-        assert ApartmentStatus.MAINTENANCE.value == "Under Maintenance"
+    def test_lease_statuses(self):
+        self.assertEqual(LeaseStatus.ACTIVE.value,     "Active")
+        self.assertEqual(LeaseStatus.PENDING.value,    "Pending")
+        self.assertEqual(LeaseStatus.TERMINATED.value, "Terminated")
+        self.assertEqual(LeaseStatus.EXPIRED.value,    "Expired")
 
-    def test_member_count(self):
-        assert len(ApartmentStatus) == 3
+    def test_apartment_statuses(self):
+        self.assertEqual(ApartmentStatus.AVAILABLE.value,   "Available")
+        self.assertEqual(ApartmentStatus.OCCUPIED.value,    "Occupied")
+        self.assertEqual(ApartmentStatus.MAINTENANCE.value, "Under Maintenance")
 
-    def test_invalid_value_raises(self):
-        with pytest.raises(ValueError):
-            ApartmentStatus("Vacant")
+    def test_maintenance_statuses(self):
+        self.assertEqual(MaintenanceStatus.OPEN.value,        "Open")
+        self.assertEqual(MaintenanceStatus.IN_PROGRESS.value, "In Progress")
+        self.assertEqual(MaintenanceStatus.RESOLVED.value,    "Resolved")
+        self.assertEqual(MaintenanceStatus.CLOSED.value,      "Closed")
 
+    def test_maintenance_priorities(self):
+        self.assertEqual(MaintenancePriority.LOW.value,    "Low")
+        self.assertEqual(MaintenancePriority.MEDIUM.value, "Medium")
+        self.assertEqual(MaintenancePriority.HIGH.value,   "High")
+        self.assertEqual(MaintenancePriority.URGENT.value, "Urgent")
 
-class TestMaintenanceStatusEnum:
-    def test_open_value(self):
-        assert MaintenanceStatus.OPEN.value == "Open"
+    def test_complaint_statuses(self):
+        self.assertEqual(ComplaintStatus.OPEN.value,         "Open")
+        self.assertEqual(ComplaintStatus.UNDER_REVIEW.value, "Under Review")
+        self.assertEqual(ComplaintStatus.RESOLVED.value,     "Resolved")
+        self.assertEqual(ComplaintStatus.CLOSED.value,       "Closed")
 
-    def test_in_progress_value(self):
-        assert MaintenanceStatus.IN_PROGRESS.value == "In Progress"
-
-    def test_resolved_value(self):
-        assert MaintenanceStatus.RESOLVED.value == "Resolved"
-
-    def test_closed_value(self):
-        assert MaintenanceStatus.CLOSED.value == "Closed"
-
-    def test_member_count(self):
-        assert len(MaintenanceStatus) == 4
-
-
-class TestMaintenancePriorityEnum:
-    def test_low_value(self):
-        assert MaintenancePriority.LOW.value == "Low"
-
-    def test_medium_value(self):
-        assert MaintenancePriority.MEDIUM.value == "Medium"
-
-    def test_high_value(self):
-        assert MaintenancePriority.HIGH.value == "High"
-
-    def test_urgent_value(self):
-        assert MaintenancePriority.URGENT.value == "Urgent"
-
-    def test_member_count(self):
-        assert len(MaintenancePriority) == 4
-
-    def test_invalid_value_raises(self):
-        with pytest.raises(ValueError):
-            MaintenancePriority("Critical")
+    def test_payment_statuses(self):
+        self.assertEqual(PaymentStatus.PENDING.value, "Pending")
+        self.assertEqual(PaymentStatus.PAID.value,    "Paid")
+        self.assertEqual(PaymentStatus.OVERDUE.value, "Overdue")
+        self.assertEqual(PaymentStatus.PARTIAL.value, "Partial")
 
 
-class TestComplaintStatusEnum:
-    def test_open_value(self):
-        assert ComplaintStatus.OPEN.value == "Open"
+# ─────────────────────────────────────────────────────────────────────────────
+#  Location
+# ─────────────────────────────────────────────────────────────────────────────
 
-    def test_under_review_value(self):
-        assert ComplaintStatus.UNDER_REVIEW.value == "Under Review"
+class TestLocation(unittest.TestCase):
 
-    def test_resolved_value(self):
-        assert ComplaintStatus.RESOLVED.value == "Resolved"
+    def test_display_name(self):
+        loc = Location(city="Bristol", address="1 High St")
+        self.assertEqual(loc.display_name(), "Bristol — 1 High St")
 
-    def test_closed_value(self):
-        assert ComplaintStatus.CLOSED.value == "Closed"
+    def test_default_country(self):
+        loc = Location(city="Leeds", address="2 Low St", postcode="LS1 1AA")
+        self.assertEqual(loc.country, "UK")
 
-    def test_member_count(self):
-        assert len(ComplaintStatus) == 4
+    def test_empty_city_display_name(self):
+        loc = Location(city="", address="Unknown")
+        self.assertEqual(loc.display_name(), " — Unknown")
 
-
-class TestPaymentStatusEnum:
-    def test_pending_value(self):
-        assert PaymentStatus.PENDING.value == "Pending"
-
-    def test_paid_value(self):
-        assert PaymentStatus.PAID.value == "Paid"
-
-    def test_overdue_value(self):
-        assert PaymentStatus.OVERDUE.value == "Overdue"
-
-    def test_partial_value(self):
-        assert PaymentStatus.PARTIAL.value == "Partial"
-
-    def test_member_count(self):
-        assert len(PaymentStatus) == 4
-
-    def test_invalid_value_raises(self):
-        with pytest.raises(ValueError):
-            PaymentStatus("Late")
-
-
-# =============================================================================
-# 2. Location dataclass
-# =============================================================================
-
-class TestLocation:
-    def test_defaults(self):
+    def test_id_defaults_none(self):
         loc = Location()
-        assert loc.id is None
-        assert loc.city == ""
-        assert loc.address == ""
-        assert loc.postcode == ""
-        assert loc.country == "UK"
-
-    def test_country_defaults_to_uk(self):
-        loc = Location(city="Cardiff", address="Bay Rd", postcode="CF10 1AA")
-        assert loc.country == "UK"
-
-    def test_explicit_values_stored(self):
-        loc = Location(id=3, city="London", address="Canary Wharf", postcode="E14 5AB", country="UK")
-        assert loc.id == 3
-        assert loc.city == "London"
-        assert loc.postcode == "E14 5AB"
-
-    def test_non_uk_country(self):
-        loc = Location(city="Dublin", address="1 St Stephen", postcode="D02", country="IE")
-        assert loc.country == "IE"
-
-    def test_empty_strings_allowed(self):
-        loc = Location(city="", address="", postcode="")
-        assert loc.city == ""
+        self.assertIsNone(loc.id)
 
 
-# =============================================================================
-# 3. Apartment dataclass
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+#  Apartment
+# ─────────────────────────────────────────────────────────────────────────────
 
-class TestApartment:
-    def test_defaults(self):
-        apt = Apartment()
-        assert apt.id is None
-        assert apt.unit_number == ""
-        assert apt.location_id is None
-        assert apt.apartment_type == ""
-        assert apt.num_bedrooms == 1
-        assert apt.num_bathrooms == 1
-        assert apt.monthly_rent == 0.0
-        assert apt.floor == 0
-        assert apt.size_sqft == 0.0
-        assert apt.furnished is False
-        assert apt.parking is False
-        assert apt.description == ""
+class TestApartment(unittest.TestCase):
+
+    def _make(self, **kw) -> Apartment:
+        defaults = dict(unit_number="1A", monthly_rent=1000.0,
+                        status=ApartmentStatus.AVAILABLE.value)
+        defaults.update(kw)
+        return Apartment(**defaults)
+
+    def test_is_available_true(self):
+        apt = self._make(status="Available")
+        self.assertTrue(apt.is_available())
+
+    def test_is_available_false_when_occupied(self):
+        apt = self._make(status="Occupied")
+        self.assertFalse(apt.is_available())
+
+    def test_is_occupied_true(self):
+        apt = self._make(status="Occupied")
+        self.assertTrue(apt.is_occupied())
+
+    def test_is_occupied_false_when_available(self):
+        apt = self._make(status="Available")
+        self.assertFalse(apt.is_occupied())
+
+    def test_annual_rent(self):
+        apt = self._make(monthly_rent=1200.0)
+        self.assertAlmostEqual(apt.annual_rent(), 14400.0)
+
+    def test_annual_rent_zero(self):
+        apt = self._make(monthly_rent=0.0)
+        self.assertEqual(apt.annual_rent(), 0.0)
 
     def test_default_status_is_available(self):
-        """FR: new apartments default to Available status."""
+        apt = Apartment(unit_number="2B", monthly_rent=800.0)
+        self.assertEqual(apt.status, ApartmentStatus.AVAILABLE.value)
+
+    def test_default_furnished_false(self):
         apt = Apartment()
-        assert apt.status == ApartmentStatus.AVAILABLE.value
-        assert apt.status == "Available"
+        self.assertFalse(apt.furnished)
 
-    def test_explicit_assignment(self):
-        apt = Apartment(
-            id=10, unit_number="LN301", location_id=3,
-            apartment_type="Studio", num_bedrooms=0, num_bathrooms=1,
-            monthly_rent=1450.0, floor=5, size_sqft=380.0,
-            furnished=True, parking=False, status="Occupied",
-            description="High floor studio"
-        )
-        assert apt.unit_number == "LN301"
-        assert apt.monthly_rent == 1450.0
-        assert apt.furnished is True
-        assert apt.parking is False
-        assert apt.status == "Occupied"
-        assert apt.description == "High floor studio"
+    def test_default_parking_false(self):
+        apt = Apartment()
+        self.assertFalse(apt.parking)
 
-    def test_zero_bedrooms_allowed(self):
-        apt = Apartment(num_bedrooms=0)
-        assert apt.num_bedrooms == 0
-
-    def test_zero_rent_allowed(self):
-        apt = Apartment(monthly_rent=0.0)
-        assert apt.monthly_rent == 0.0
+    def test_under_maintenance_not_available(self):
+        apt = self._make(status="Under Maintenance")
+        self.assertFalse(apt.is_available())
+        self.assertFalse(apt.is_occupied())
 
     def test_large_rent(self):
-        apt = Apartment(monthly_rent=9999999.99)
-        assert apt.monthly_rent == 9999999.99
-
-    def test_high_floor(self):
-        apt = Apartment(floor=50)
-        assert apt.floor == 50
-
-    def test_joined_fields_default_empty(self):
-        apt = Apartment()
-        assert apt.location_city == ""
-        assert apt.location_address == ""
-
-    def test_furnished_and_parking_booleans(self):
-        apt = Apartment(furnished=True, parking=True)
-        assert apt.furnished is True
-        assert apt.parking is True
+        apt = self._make(monthly_rent=999_999.99)
+        self.assertAlmostEqual(apt.annual_rent(), 11_999_999.88, places=1)
 
 
-# =============================================================================
-# 4. Tenant dataclass
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+#  Tenant
+# ─────────────────────────────────────────────────────────────────────────────
 
-class TestTenant:
-    def test_defaults(self):
+class TestTenant(unittest.TestCase):
+
+    def _make(self, **kw) -> Tenant:
+        defaults = dict(first_name="Jane", last_name="Doe",
+                        ni_number="AB123456C", phone="07700123456", email="jane@test.com",
+                        reference1_name="Dr Smith")
+        defaults.update(kw)
+        return Tenant(**defaults)
+
+    def test_full_name(self):
+        t = self._make(first_name="Jane", last_name="Doe")
+        self.assertEqual(t.full_name, "Jane Doe")
+
+    def test_full_name_single_word_last(self):
+        t = self._make(first_name="Cher", last_name="")
+        self.assertEqual(t.full_name, "Cher ")
+
+    def test_has_references_true(self):
+        t = self._make(reference1_name="Dr Brown")
+        self.assertTrue(t.has_references())
+
+    def test_has_references_false_when_empty(self):
+        t = self._make(reference1_name="")
+        self.assertFalse(t.has_references())
+
+    def test_has_emergency_contact_true(self):
+        t = self._make(emergency_contact_name="Bob", emergency_contact_phone="07700999888")
+        self.assertTrue(t.has_emergency_contact())
+
+    def test_has_emergency_contact_false_missing_phone(self):
+        t = self._make(emergency_contact_name="Bob", emergency_contact_phone="")
+        self.assertFalse(t.has_emergency_contact())
+
+    def test_has_emergency_contact_false_missing_name(self):
+        t = self._make(emergency_contact_name="", emergency_contact_phone="07700999888")
+        self.assertFalse(t.has_emergency_contact())
+
+    def test_default_notes_empty(self):
         t = Tenant()
-        assert t.id is None
-        assert t.ni_number == ""
-        assert t.first_name == ""
-        assert t.last_name == ""
-        assert t.phone == ""
-        assert t.email == ""
-        assert t.occupation == ""
-        assert t.notes == ""
+        self.assertEqual(t.notes, "")
 
-    def test_optional_fields_default_none(self):
-        t = Tenant()
-        assert t.date_of_birth is None
-        assert t.created_at is None
-
-    def test_full_name_property(self):
-        t = Tenant(first_name="Alice", last_name="Smith")
-        assert t.full_name == "Alice Smith"
-
-    def test_full_name_empty_strings(self):
-        t = Tenant(first_name="", last_name="")
-        assert t.full_name == " "
-
-    def test_full_name_only_first(self):
-        t = Tenant(first_name="Cher", last_name="")
-        assert t.full_name == "Cher "
-
-    def test_full_name_only_last(self):
-        t = Tenant(first_name="", last_name="Prince")
-        assert t.full_name == " Prince"
-
-    def test_reference_fields_default_empty(self):
-        t = Tenant()
-        assert t.reference1_name == ""
-        assert t.reference1_phone == ""
-        assert t.reference1_email == ""
-        assert t.reference2_name == ""
-
-    def test_emergency_contact_defaults_empty(self):
-        t = Tenant()
-        assert t.emergency_contact_name == ""
-        assert t.emergency_contact_phone == ""
-
-    def test_explicit_values(self):
-        t = Tenant(
-            id=5, ni_number="NI100001A", first_name="James",
-            last_name="Taylor", phone="07811100001",
-            email="james@email.com", occupation="Engineer",
-            date_of_birth="1988-04-15"
-        )
-        assert t.ni_number == "NI100001A"
-        assert t.full_name == "James Taylor"
-        assert t.date_of_birth == "1988-04-15"
+    def test_optional_date_of_birth_none(self):
+        t = self._make()
+        self.assertIsNone(t.date_of_birth)
 
 
-# =============================================================================
-# 5. Lease dataclass
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+#  Lease
+# ─────────────────────────────────────────────────────────────────────────────
 
-class TestLease:
-    def test_defaults(self):
-        lease = Lease()
-        assert lease.id is None
-        assert lease.tenant_id is None
-        assert lease.apartment_id is None
-        assert lease.monthly_rent == 0.0
-        assert lease.deposit_amount == 0.0
-        assert lease.early_termination_requested is False
+class TestLease(unittest.TestCase):
 
-    def test_default_status_is_active(self):
-        """FR: new leases default to Active status."""
-        lease = Lease()
-        assert lease.status == LeaseStatus.ACTIVE.value
-        assert lease.status == "Active"
+    def _make(self, **kw) -> Lease:
+        defaults = dict(tenant_id=1, apartment_id=1, monthly_rent=1200.0,
+                        deposit_amount=1200.0, start_date=_past(90),
+                        end_date=_future(90), status="Active")
+        defaults.update(kw)
+        return Lease(**defaults)
 
-    def test_optional_date_fields_default_none(self):
-        lease = Lease()
-        assert lease.start_date is None
-        assert lease.end_date is None
-        assert lease.early_termination_date is None
-        assert lease.notice_given_date is None
-        assert lease.created_at is None
+    # ── is_active ────────────────────────────────────────────────────
 
-    def test_joined_fields_default_empty(self):
-        lease = Lease()
-        assert lease.tenant_name == ""
-        assert lease.tenant_email == ""
-        assert lease.tenant_phone == ""
-        assert lease.apartment_unit == ""
-        assert lease.apartment_type == ""
-        assert lease.location_city == ""
-        assert lease.location_address == ""
+    def test_is_active_true(self):
+        self.assertTrue(self._make(status="Active").is_active())
 
-    def test_explicit_values(self):
-        lease = Lease(
-            id=1, tenant_id=3, apartment_id=7,
-            start_date="2025-01-01", end_date="2026-01-01",
-            monthly_rent=1250.0, deposit_amount=1250.0,
-            status="Active"
-        )
-        assert lease.monthly_rent == 1250.0
-        assert lease.deposit_amount == 1250.0
-        assert lease.start_date == "2025-01-01"
+    def test_is_active_false_terminated(self):
+        self.assertFalse(self._make(status="Terminated").is_active())
 
-    def test_early_termination_flag(self):
-        lease = Lease(early_termination_requested=True,
-                      early_termination_date="2025-06-01")
-        assert lease.early_termination_requested is True
-        assert lease.early_termination_date == "2025-06-01"
+    def test_is_active_false_expired(self):
+        self.assertFalse(self._make(status="Expired").is_active())
+
+    # ── days_until_expiry ────────────────────────────────────────────
+
+    def test_days_until_expiry_future(self):
+        lease = self._make(end_date=_future(30))
+        days = lease.days_until_expiry()
+        # Allow ±1 day for test-run timing
+        self.assertAlmostEqual(days, 30, delta=1)
+
+    def test_days_until_expiry_past_is_negative(self):
+        lease = self._make(end_date=_past(10))
+        self.assertLess(lease.days_until_expiry(), 0)
+
+    def test_days_until_expiry_no_end_date(self):
+        lease = self._make(end_date=None)
+        self.assertIsNone(lease.days_until_expiry())
+
+    def test_days_until_expiry_invalid_date_string(self):
+        lease = self._make(end_date="not-a-date")
+        self.assertIsNone(lease.days_until_expiry())
+
+    # ── is_expired ───────────────────────────────────────────────────
+
+    def test_is_expired_true(self):
+        lease = self._make(end_date=_past(1))
+        self.assertTrue(lease.is_expired())
+
+    def test_is_expired_false_future(self):
+        lease = self._make(end_date=_future(1))
+        self.assertFalse(lease.is_expired())
+
+    def test_is_expired_no_end_date(self):
+        lease = self._make(end_date=None)
+        self.assertFalse(lease.is_expired())
+
+    # ── early_termination_penalty ────────────────────────────────────
+
+    def test_penalty_calculation(self):
+        lease = self._make(monthly_rent=1000.0)
+        self.assertAlmostEqual(lease.early_termination_penalty(), 50.0)
+
+    def test_penalty_rate_is_five_percent(self):
+        for rent in [500, 1200, 2000, 3750]:
+            expected = round(rent * 0.05, 2)
+            self.assertAlmostEqual(
+                self._make(monthly_rent=float(rent)).early_termination_penalty(),
+                expected,
+                places=2,
+                msg=f"Wrong penalty for rent={rent}"
+            )
+
+    def test_penalty_zero_rent(self):
+        lease = self._make(monthly_rent=0.0)
+        self.assertEqual(lease.early_termination_penalty(), 0.0)
+
+    def test_required_notice_days_constant(self):
+        lease = self._make()
+        self.assertEqual(lease.REQUIRED_NOTICE_DAYS, 30)
+
+    # ── default fields ───────────────────────────────────────────────
+
+    def test_default_early_termination_requested_false(self):
+        self.assertFalse(self._make().early_termination_requested)
+
+    def test_default_tenant_name_empty(self):
+        self.assertEqual(self._make().tenant_name, "")
 
 
-# =============================================================================
-# 6. Payment dataclass
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+#  Payment
+# ─────────────────────────────────────────────────────────────────────────────
 
-class TestPayment:
-    def test_defaults(self):
+class TestPayment(unittest.TestCase):
+
+    def _make(self, **kw) -> Payment:
+        defaults = dict(lease_id=1, amount_due=1200.0, amount_paid=0.0,
+                        due_date=_future(10), status="Pending")
+        defaults.update(kw)
+        return Payment(**defaults)
+
+    # ── balance_due ──────────────────────────────────────────────────
+
+    def test_balance_due_full(self):
+        p = self._make(amount_due=1200.0, amount_paid=0.0)
+        self.assertAlmostEqual(p.balance_due(), 1200.0)
+
+    def test_balance_due_partial(self):
+        p = self._make(amount_due=1200.0, amount_paid=400.0)
+        self.assertAlmostEqual(p.balance_due(), 800.0)
+
+    def test_balance_due_fully_paid(self):
+        p = self._make(amount_due=1200.0, amount_paid=1200.0)
+        self.assertAlmostEqual(p.balance_due(), 0.0)
+
+    def test_balance_due_overpaid(self):
+        # Overpayment yields a negative balance — valid edge case
+        p = self._make(amount_due=1000.0, amount_paid=1100.0)
+        self.assertAlmostEqual(p.balance_due(), -100.0)
+
+    # ── is_overdue ───────────────────────────────────────────────────
+
+    def test_is_overdue_past_due_pending(self):
+        p = self._make(due_date=_past(5), status="Pending")
+        self.assertTrue(p.is_overdue())
+
+    def test_is_overdue_false_future_due(self):
+        p = self._make(due_date=_future(5), status="Pending")
+        self.assertFalse(p.is_overdue())
+
+    def test_is_overdue_false_when_paid(self):
+        p = self._make(due_date=_past(5), status="Paid")
+        self.assertFalse(p.is_overdue())
+
+    def test_is_overdue_false_no_due_date(self):
+        p = self._make(due_date=None, status="Pending")
+        self.assertFalse(p.is_overdue())
+
+    def test_is_overdue_invalid_date_string(self):
+        p = self._make(due_date="not-a-date", status="Pending")
+        self.assertFalse(p.is_overdue())
+
+    # ── is_paid ──────────────────────────────────────────────────────
+
+    def test_is_paid_true(self):
+        self.assertTrue(self._make(status="Paid").is_paid())
+
+    def test_is_paid_false_pending(self):
+        self.assertFalse(self._make(status="Pending").is_paid())
+
+    def test_is_paid_false_overdue(self):
+        self.assertFalse(self._make(status="Overdue").is_paid())
+
+    # ── default fields ───────────────────────────────────────────────
+
+    def test_default_status_pending(self):
+        p = Payment(lease_id=1, amount_due=100.0)
+        self.assertEqual(p.status, PaymentStatus.PENDING.value)
+
+    def test_default_reference_number_empty(self):
         p = Payment()
-        assert p.id is None
-        assert p.lease_id is None
-        assert p.amount_due == 0.0
-        assert p.amount_paid == 0.0
-        assert p.payment_method == ""
-        assert p.reference_number == ""
-        assert p.notes == ""
-
-    def test_default_status_is_pending(self):
-        """FR: payment records default to Pending status."""
-        p = Payment()
-        assert p.status == PaymentStatus.PENDING.value
-        assert p.status == "Pending"
-
-    def test_optional_date_fields_none(self):
-        p = Payment()
-        assert p.due_date is None
-        assert p.paid_date is None
-        assert p.created_at is None
-
-    def test_partial_payment_fields(self):
-        p = Payment(
-            amount_due=1000.0, amount_paid=500.0,
-            status=PaymentStatus.PARTIAL.value
-        )
-        assert p.amount_paid < p.amount_due
-        assert p.status == "Partial"
-
-    def test_overpayment_stored(self):
-        p = Payment(amount_due=500.0, amount_paid=600.0)
-        assert p.amount_paid > p.amount_due
-
-    def test_zero_amounts(self):
-        p = Payment(amount_due=0.0, amount_paid=0.0)
-        assert p.amount_due == 0.0
-        assert p.amount_paid == 0.0
+        self.assertEqual(p.reference_number, "")
 
 
-# =============================================================================
-# 7. MaintenanceRequest dataclass
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+#  MaintenanceRequest
+# ─────────────────────────────────────────────────────────────────────────────
 
-class TestMaintenanceRequest:
-    def test_defaults(self):
+class TestMaintenanceRequest(unittest.TestCase):
+
+    def _make(self, **kw) -> MaintenanceRequest:
+        defaults = dict(title="Boiler fault", category="Plumbing",
+                        priority=MaintenancePriority.MEDIUM.value,
+                        status=MaintenanceStatus.OPEN.value)
+        defaults.update(kw)
+        return MaintenanceRequest(**defaults)
+
+    def test_is_open_true(self):
+        self.assertTrue(self._make(status="Open").is_open())
+
+    def test_is_open_false_in_progress(self):
+        self.assertFalse(self._make(status="In Progress").is_open())
+
+    def test_is_resolved_true_resolved(self):
+        self.assertTrue(self._make(status="Resolved").is_resolved())
+
+    def test_is_resolved_true_closed(self):
+        self.assertTrue(self._make(status="Closed").is_resolved())
+
+    def test_is_resolved_false_open(self):
+        self.assertFalse(self._make(status="Open").is_resolved())
+
+    def test_is_urgent_true(self):
+        req = self._make(priority=MaintenancePriority.URGENT.value)
+        self.assertTrue(req.is_urgent())
+
+    def test_is_urgent_false_medium(self):
+        req = self._make(priority=MaintenancePriority.MEDIUM.value)
+        self.assertFalse(req.is_urgent())
+
+    def test_default_priority_medium(self):
         req = MaintenanceRequest()
-        assert req.id is None
-        assert req.lease_id is None
-        assert req.apartment_id is None
-        assert req.tenant_id is None
-        assert req.title == ""
-        assert req.description == ""
-        assert req.category == ""
-        assert req.cost == 0.0
-        assert req.time_taken_hours == 0.0
-        assert req.resolution_notes == ""
+        self.assertEqual(req.priority, MaintenancePriority.MEDIUM.value)
 
-    def test_default_priority_is_medium(self):
-        """FR: new maintenance requests default to Medium priority."""
+    def test_default_status_open(self):
         req = MaintenanceRequest()
-        assert req.priority == MaintenancePriority.MEDIUM.value
-        assert req.priority == "Medium"
+        self.assertEqual(req.status, MaintenanceStatus.OPEN.value)
 
-    def test_default_status_is_open(self):
-        """FR: new maintenance requests default to Open status."""
+    def test_default_cost_zero(self):
         req = MaintenanceRequest()
-        assert req.status == MaintenanceStatus.OPEN.value
-        assert req.status == "Open"
+        self.assertEqual(req.cost, 0.0)
 
-    def test_optional_dates_default_none(self):
+    def test_default_hours_zero(self):
         req = MaintenanceRequest()
-        assert req.reported_date is None
-        assert req.scheduled_date is None
-        assert req.resolved_date is None
-        assert req.created_at is None
+        self.assertEqual(req.time_taken_hours, 0.0)
 
-    def test_urgent_priority(self):
-        req = MaintenanceRequest(priority=MaintenancePriority.URGENT.value)
-        assert req.priority == "Urgent"
-
-    def test_cost_and_hours(self):
-        req = MaintenanceRequest(cost=250.0, time_taken_hours=3.5)
-        assert req.cost == 250.0
-        assert req.time_taken_hours == 3.5
-
-    def test_joined_fields_default_empty(self):
-        req = MaintenanceRequest()
-        assert req.tenant_name == ""
-        assert req.apartment_unit == ""
-        assert req.location_city == ""
+    def test_empty_title_allowed_by_model(self):
+        # The model itself does not enforce non-empty title — that is UI validation
+        req = MaintenanceRequest(title="")
+        self.assertEqual(req.title, "")
 
 
-# =============================================================================
-# 8. Complaint dataclass
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+#  Complaint
+# ─────────────────────────────────────────────────────────────────────────────
 
-class TestComplaint:
-    def test_defaults(self):
+class TestComplaint(unittest.TestCase):
+
+    def _make(self, **kw) -> Complaint:
+        defaults = dict(title="Noise complaint", status=ComplaintStatus.OPEN.value)
+        defaults.update(kw)
+        return Complaint(**defaults)
+
+    def test_is_open_true(self):
+        self.assertTrue(self._make(status="Open").is_open())
+
+    def test_is_open_false(self):
+        self.assertFalse(self._make(status="Resolved").is_open())
+
+    def test_is_resolved_resolved(self):
+        self.assertTrue(self._make(status="Resolved").is_resolved())
+
+    def test_is_resolved_closed(self):
+        self.assertTrue(self._make(status="Closed").is_resolved())
+
+    def test_is_resolved_false_under_review(self):
+        self.assertFalse(self._make(status="Under Review").is_resolved())
+
+    def test_default_status_open(self):
         c = Complaint()
-        assert c.id is None
-        assert c.lease_id is None
-        assert c.tenant_id is None
-        assert c.apartment_id is None
-        assert c.title == ""
-        assert c.description == ""
-        assert c.category == ""
-        assert c.resolution_notes == ""
+        self.assertEqual(c.status, ComplaintStatus.OPEN.value)
 
-    def test_default_status_is_open(self):
-        """FR: new complaints default to Open status."""
+    def test_default_resolution_notes_empty(self):
         c = Complaint()
-        assert c.status == ComplaintStatus.OPEN.value
-        assert c.status == "Open"
-
-    def test_optional_dates_default_none(self):
-        c = Complaint()
-        assert c.reported_date is None
-        assert c.resolved_date is None
-        assert c.created_at is None
-
-    def test_joined_fields_default_empty(self):
-        c = Complaint()
-        assert c.tenant_name == ""
-        assert c.apartment_unit == ""
-
-    def test_explicit_values(self):
-        c = Complaint(
-            id=1, lease_id=2, tenant_id=3, apartment_id=4,
-            title="Noisy neighbour", category="Noise",
-            status=ComplaintStatus.UNDER_REVIEW.value
-        )
-        assert c.title == "Noisy neighbour"
-        assert c.status == "Under Review"
+        self.assertEqual(c.resolution_notes, "")
 
 
-# =============================================================================
-# 9. Staff dataclass
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+#  Staff
+# ─────────────────────────────────────────────────────────────────────────────
 
-class TestStaff:
-    def test_defaults(self):
+class TestStaff(unittest.TestCase):
+
+    def _make(self, **kw) -> Staff:
+        defaults = dict(username="alice", first_name="Alice", last_name="Smith",
+                        role="Front Desk", is_active=True)
+        defaults.update(kw)
+        return Staff(**defaults)
+
+    def test_full_name(self):
+        s = self._make(first_name="Alice", last_name="Smith")
+        self.assertEqual(s.full_name, "Alice Smith")
+
+    def test_is_manager_true(self):
+        s = self._make(role="Manager")
+        self.assertTrue(s.is_manager())
+
+    def test_is_manager_false(self):
+        s = self._make(role="Front Desk")
+        self.assertFalse(s.is_manager())
+
+    def test_is_admin_true(self):
+        s = self._make(role="Administrator")
+        self.assertTrue(s.is_admin())
+
+    def test_is_admin_false(self):
+        s = self._make(role="Finance Manager")
+        self.assertFalse(s.is_admin())
+
+    def test_has_location_access_true(self):
+        s = self._make(location_id=2)
+        self.assertTrue(s.has_location_access(2))
+
+    def test_has_location_access_false(self):
+        s = self._make(location_id=2)
+        self.assertFalse(s.has_location_access(3))
+
+    def test_has_location_access_none_location(self):
+        s = self._make(location_id=None)
+        self.assertFalse(s.has_location_access(1))
+
+    def test_default_is_active(self):
         s = Staff()
-        assert s.id is None
-        assert s.username == ""
-        assert s.password_hash == ""
-        assert s.first_name == ""
-        assert s.last_name == ""
-        assert s.role == ""
-        assert s.email == ""
-        assert s.phone == ""
-        assert s.location_id is None
-
-    def test_is_active_defaults_true(self):
-        """FR: new staff accounts are active by default."""
-        s = Staff()
-        assert s.is_active is True
-
-    def test_created_at_defaults_none(self):
-        s = Staff()
-        assert s.created_at is None
-
-    def test_full_name_property(self):
-        s = Staff(first_name="Frank", last_name="Miller")
-        assert s.full_name == "Frank Miller"
-
-    def test_full_name_empty(self):
-        s = Staff(first_name="", last_name="")
-        assert s.full_name == " "
-
-    def test_full_name_only_first(self):
-        s = Staff(first_name="Admin", last_name="")
-        assert s.full_name == "Admin "
-
-    def test_explicit_values(self):
-        s = Staff(
-            id=1, username="manager1", role="Manager",
-            first_name="Frank", last_name="Miller",
-            email="frank@property.com", phone="07700666666",
-            location_id=1, is_active=True
-        )
-        assert s.username == "manager1"
-        assert s.role == "Manager"
-        assert s.full_name == "Frank Miller"
-        assert s.is_active is True
+        self.assertTrue(s.is_active)
 
     def test_inactive_staff(self):
-        s = Staff(is_active=False)
-        assert s.is_active is False
+        s = self._make(is_active=False)
+        self.assertFalse(s.is_active)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

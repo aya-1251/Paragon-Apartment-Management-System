@@ -18,6 +18,7 @@ Module: UFCF8S-30-2 Advanced Software Development | Group 17
 |---|---|---|
 | System / Validation | Manual black-box | Follow Sections 1–16 of this guide |
 | Integration | Manual black-box | Sections 15–16 — cross-table consistency checks |
+| **Unit / Integration** | **Automated (white-box)** | **Section 18 — `test_models.py` & `test_database.py`** |
 
 ### Testing Techniques Used
 
@@ -680,4 +681,45 @@ After any code change, re-test the relevant sections to confirm existing functio
 
 ---
 
-*Testing Guide — PAMS Group 17 — Updated 2026-04-22*
+## Section 18 — Automated Testing Suite
+
+In addition to the manual tests above, PAMS includes a fully automated test suite that validates the **model layer** and **database integration** without any UI interaction. These tests run in isolation (they never touch the production `property_management.db`) and are ideal for regression testing during development.
+
+### 18.1 – Unit Tests: `tests/test_models.py`
+
+**Purpose:** Test every model class in complete isolation — no database, no I/O.  
+**Number of tests:** ~70 assertions (each test method covers a small unit of logic).
+
+| Class | What's tested |
+|-------|----------------|
+| **Enums** | Every status string value matches what the DB and UI expect (e.g. `"Under Maintenance"` not `"Maintenance"`). |
+| **Location** | `display_name()`, default country, empty city edge case. |
+| **Apartment** | `is_available()`, `is_occupied()`, `annual_rent()`, all status combinations, zero/large rent. |
+| **Tenant** | `full_name`, `has_references()`, `has_emergency_contact()` with all missing‑field combos. |
+| **Lease** | `is_active`/`is_expired`, `days_until_expiry()` (future/past/`None`/invalid date), `early_termination_penalty()` at 5% for multiple rent levels, zero rent, notice days constant. |
+| **Payment** | `balance_due()` (full/partial/overpaid), `is_overdue()` (past/future/paid/no date/invalid), `is_paid()`. |
+| **MaintenanceRequest** | `is_open`/`is_resolved`/`is_urgent()`, default priority/status/cost/hours, empty title allowed by model. |
+| **Complaint** | `is_open`/`is_resolved()` for all statuses including *Under Review*. |
+| **Staff** | `full_name`, `is_manager()`/`is_admin()`, `has_location_access()`, active/inactive flags. |
+
+### 18.2 – Integration Tests: `tests/test_database.py`
+
+**Purpose:** Test the `DatabaseManager` class against a real SQLite database, but **every test uses a fresh `:memory:` database** – no side effects on the real file.  
+**Number of tests:** 79 individual test methods.
+
+| Class | What's tested |
+|-------|----------------|
+| **Authentication** | Valid login, wrong password, wrong username, empty credentials, inactive account blocks login, reactivation restores login, password reset. |
+| **TenantCRUD** | Create/retrieve, positive ID, duplicate NI rejected, update fields, get all, search by name, no‑match search. |
+| **ApartmentManagement** | Create/retrieve, default *Available* status, status update, field update, filter by location, available‑only filter, delete with/without lease (delete‑with‑active‑lease guard), search. |
+| **LeaseLifecycle** | Create marks apartment *Occupied*, active lease query, no‑lease returns `None`, joined tenant name and unit, get by ID, status update, expired auto‑detection, history query. |
+| **Early termination** | Status → *Terminated*, flag set, apartment freed → *Available*, penalty payment created at correct 5% amount, penalty status is *Pending*. |
+| **Payments** | `create_payment_request` returns ID and marks *Paid*, `amount_paid` equals `amount_due`, `mark_paid`, `mark_overdue`, overdue doesn't affect already‑Paid, payments for apartment, financial summary, `create_invoice`. |
+| **Maintenance** | Create, retrieve for apartment/lease, update status/schedule, resolve with cost+hours+notes, filter by status, not‑found returns `None`, stats open count. |
+| **Complaints** | Create (respecting staff FK), retrieve for apartment/lease, multiple complaints, empty list, joined tenant name. |
+| **StaffManagement** | Create, duplicate username blocked, `username_exists`, toggle active/inactive, update fields, location‑scoped query, all‑staff query, manager/admin role flags, admin‑vs‑manager guard logic. |
+| **LocationManagement** | Add, get all, update, cross‑city summary structure. |
+| **Full lifecycle** | One end‑to‑end scenario: register tenant → create lease → pay → log maintenance → log complaint → early terminate → verify all downstream state. |
+
+
+
