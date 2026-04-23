@@ -1,5 +1,3 @@
-PAMS — Requirements Specification | Module: UFCF8S-30-2 | Group 17
-
 # PAMS
 
 ## Paragon Apartment Management System
@@ -74,10 +72,6 @@ The following table defines the five user roles and their primary responsibiliti
 
 The system is implemented as a desktop application using the following technologies:
 
-Paragon Apartment Management System | Group 17 | Requirements Specification
-
-PAMS — Requirements Specification | Module: UFCF8S-30-2 | Group 17
-
 *   Programming Language: Python 3.10+
 *   GUI Framework: Tkinter with ttk (light theme)
 *   Database: SQLite (relational, local file — `property_management.db`)
@@ -85,8 +79,6 @@ PAMS — Requirements Specification | Module: UFCF8S-30-2 | Group 17
 *   Export: Strategy pattern (`exporters.py`) — CSV (stdlib) and PDF (`reportlab`)
 
 ## 2. Functional Requirements
-
-The table below lists all functional requirements derived from the case study brief. Each requirement is identified by a unique ID and mapped to the relevant system component.
 
 <table>
   <thead>
@@ -285,13 +277,7 @@ The table below lists all functional requirements derived from the case study br
   </tbody>
 </table>
 
-Paragon Apartment Management System | Group 17 | Requirements Specification
-
-PAMS — Requirements Specification | Module: UFCF8S-30-2 | Group 17
-
 # 3. Non-Functional Requirements
-
-The table below defines the non-functional requirements governing system quality attributes including security, usability, scalability, reliability, and portability.
 
 <table>
   <thead>
@@ -387,10 +373,6 @@ The table below defines the non-functional requirements governing system quality
 
 ## 4.2 Assumptions
 
-Paragon Apartment Management System | Group 17 | Requirements Specification
-
-PAMS — Requirements Specification | Module: UFCF8S-30-2 | Group 17
-
 * All users will access the system from a machine with Python 3.10+ installed.
 * The database (`property_management.db`) is local to the machine; no networked database server is required.
 * Demo data is pre-seeded automatically on first launch for testing and demonstration purposes.
@@ -472,32 +454,3 @@ The requirements in this document map directly to the use case diagram (FR-01 to
     </tr>
   </tbody>
 </table>
-
-## 6. Document History
-
-<table>
-  <thead>
-    <tr>
-      <th>Version</th>
-      <th>Date</th>
-      <th>Author</th>
-      <th>Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>1.0</td>
-      <td>20 April 2026</td>
-      <td>Group 17</td>
-      <td>Initial draft — full requirements for the final version, aligned with implemented system.</td>
-    </tr>
-    <tr>
-      <td>1.1</td>
-      <td>22 April 2026</td>
-      <td>Group 17</td>
-      <td>Updated FR-01 and NFR-02 for salted SHA-256; updated FR-16 to specify Front Desk role; added NFR-14 for NI/phone input validation; updated traceability table to separate Early Termination as its own row.</td>
-    </tr>
-  </tbody>
-</table>
-
-Paragon Apartment Management System | Group 17 | Requirements Specification
