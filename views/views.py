@@ -338,7 +338,7 @@ class DataExplorerView(tk.Frame):
 
         for col, raw in zip(columns, values):
             if col in self._MASKED:
-                display, colour = "••••••••", TEXT_MUTED
+                display, colour = "********", TEXT_MUTED
             elif raw in (None, "", "None"):
                 display, colour = "—", TEXT_MUTED
             else:

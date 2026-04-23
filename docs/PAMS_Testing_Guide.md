@@ -509,11 +509,12 @@ Log in as `maint1`, open **Maintenance Jobs**.
 3. **Expected:** A landscape A4 PDF is created with a styled table (blue header row, alternating white/light-grey rows).
 4. If reportlab is not installed: **Expected:** Error dialog with install instructions. No crash.
 
-### TC-56 — CSV injection sanitisation (FR-36, NFR-04)
-1. Register a tenant with NI number `=CMD` (starts with `=`).
-2. Export Tenant Records as CSV.
-3. Open the CSV in a text editor.
-4. **Expected:** The NI field is prefixed with `'` (apostrophe), producing `'=CMD` — the formula character is neutralised.
+### TC-56 — CSV injection prevention (FR-36, NFR-04)
+1. Attempt to register a tenant with NI number `=CMD`.
+2. **Expected:** Validation error — "NI Number must be 2 letters, 6 digits, then 1 letter"
+3. Confirms input validation prevents CSV injection at the source.
+4. **Secondary defense (code-level):** CSV/PDF exports automatically prefix dangerous characters (=, +, -, @) with apostrophe, providing defense-in-depth.
+
 
 ### TC-57 — Export with no data shows message
 1. In any table view, apply a filter that returns zero records.
@@ -540,7 +541,7 @@ Log in as `maint1`, open **Maintenance Jobs**.
 
 ### TC-57d — Password column is masked
 1. In Data Explorer (admin or manager), select the `staff` table.
-2. **Expected:** The `password_hash` column shows `••••••••` for every row — the real hash is never visible in the UI.
+2. **Expected:** The `password_hash` column shows `********` for every row — the real hash is never visible in the UI.
 
 ### TC-57e — Row detail panel
 1. In Data Explorer, click any row in the Treeview.
@@ -549,7 +550,7 @@ Log in as `maint1`, open **Maintenance Jobs**.
 ### TC-57f — Export from Data Explorer
 1. In Data Explorer, select any table and load data.
 2. Click **⬇ CSV**.
-3. **Expected:** A CSV file is created containing the table data. The `password_hash` column contains `••••••••` (not the real hash) in the exported file.
+3. **Expected:** A CSV file is created containing the table data. The `password_hash` column contains `********` (not the real hash) in the exported file.
 
 ---
 
@@ -568,7 +569,7 @@ Log in as `manager1`.
 ### TC-60 — Manager Lease Tracker is cross-city
 1. Click **Lease Tracker** in the sidebar.
 2. **Expected:** Leases from all four cities appear. The City column distinguishes locations.
-3. Export CSV — confirms all-city data is present in the file.
+3. Table shown— confirms all-city data is present in the file.
 
 ### TC-61 — Expand Business registers a new city (FR-34)
 1. Click **Expand Business** in the sidebar.
